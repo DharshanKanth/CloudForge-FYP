@@ -28,7 +28,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (email: string, password: string) => {
     const res = await authApi.login({ email, password });
-    const { access_token, user: userData } = res.data;
+    const { user: userData } = res.data;
     // Access token stored in httpOnly cookie by the server.
     setUser(userData);
     localStorage.setItem('cloudforge_user', JSON.stringify(userData));
@@ -36,7 +36,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const register = async (email: string, username: string, password: string) => {
     const res = await authApi.register({ email, username, password });
-    const { access_token, user: userData } = res.data;
+    const { user: userData } = res.data;
     setUser(userData);
     localStorage.setItem('cloudforge_user', JSON.stringify(userData));
   };
