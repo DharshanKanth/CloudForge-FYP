@@ -1,0 +1,45 @@
+resource "aws_security_group" "{{ resource.slug }}" {
+  name        = "{{ resource.props.get('name', resource.slug) }}"
+  description = "{{ resource.props.get('description', 'Security group managed by CloudForge') }}"
+{% if resource.vpc_ref is defined and resource.vpc_ref %}
+  vpc_id      = aws_vpc.{{ resource.vpc_ref }}.id
+{% endif %}
+
+  # Inbound rules
+  ingress {
+    description = "HTTP"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "HTTPS"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "SSH"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["10.0.0.0/8"]
+  }
+
+  # Outbound rules
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name      = "{{ resource.props.get('name', resource.slug) }}"
+    ManagedBy = "CloudForge"
+  }
+}

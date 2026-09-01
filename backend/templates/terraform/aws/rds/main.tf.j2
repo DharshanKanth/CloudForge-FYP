@@ -1,0 +1,42 @@
+resource "aws_db_instance" "{{ resource.slug }}" {
+  identifier        = "{{ resource.props.get('identifier', resource.slug) }}"
+  engine            = "{{ resource.props.get('engine', 'mysql') }}"
+  engine_version    = "{{ resource.props.get('engineVersion', '8.0') }}"
+  instance_class    = "{{ resource.props.get('instanceClass', 'db.t3.micro') }}"
+  allocated_storage = {{ resource.props.get('storage', 20) }}
+  storage_type      = "gp2"
+  storage_encrypted = true
+
+  db_name  = "{{ resource.props.get('dbName', 'mydb') }}"
+  username = "{{ resource.props.get('username', 'admin') }}"
+  password = var.rds_password_{{ resource.slug }}
+
+  skip_final_snapshot = true
+  multi_az            = {{ 'true' if resource.props.get('multiAz', False) else 'false' }}
+  publicly_accessible = false
+
+{% if resource.subnet_ref is defined and resource.subnet_ref %}
+  db_subnet_group_name = aws_db_subnet_group.{{ resource.slug }}_subnet_group.name
+{% endif %}
+
+{% if resource.sg_refs is defined and resource.sg_refs %}
+  vpc_security_group_ids = [{% for sg in resource.sg_refs %}aws_security_group.{{ sg }}.id{% if not loop.last %}, {% endif %}{% endfor %}]
+{% endif %}
+
+  tags = {
+    Name      = "{{ resource.props.get('identifier', resource.slug) }}"
+    ManagedBy = "CloudForge"
+  }
+}
+
+{% if resource.subnet_ref is defined and resource.subnet_ref %}
+resource "aws_db_subnet_group" "{{ resource.slug }}_subnet_group" {
+  name       = "{{ resource.slug }}-subnet-group"
+  subnet_ids = [aws_subnet.{{ resource.subnet_ref }}.id]
+
+  tags = {
+    Name      = "{{ resource.slug }}-subnet-group"
+    ManagedBy = "CloudForge"
+  }
+}
+{% endif %}

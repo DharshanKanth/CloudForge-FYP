@@ -1,0 +1,11 @@
+resource "aws_vpc" "{{ resource.slug }}" {
+  cidr_block           = var.vpc_cidr_{{ resource.slug }}
+  enable_dns_hostnames = true
+  enable_dns_support   = true
+
+  tags = {
+    Name        = "{{ resource.props.get('name', resource.slug) }}"
+    ManagedBy   = "CloudForge"
+    Environment = "{{ resource.props.get('environment', 'development') }}"
+  }
+}

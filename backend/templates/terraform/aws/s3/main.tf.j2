@@ -1,0 +1,35 @@
+resource "aws_s3_bucket" "{{ resource.slug }}" {
+  bucket = "{{ resource.props.get('bucketName', resource.slug) }}"
+
+  tags = {
+    Name        = "{{ resource.props.get('bucketName', resource.slug) }}"
+    Environment = "{{ resource.props.get('environment', 'development') }}"
+    ManagedBy   = "CloudForge"
+  }
+}
+
+resource "aws_s3_bucket_versioning" "{{ resource.slug }}_versioning" {
+  bucket = aws_s3_bucket.{{ resource.slug }}.id
+  versioning_configuration {
+    status = "{{ 'Enabled' if resource.props.get('versioning', False) else 'Suspended' }}"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "{{ resource.slug }}_sse" {
+  bucket = aws_s3_bucket.{{ resource.slug }}.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "{{ resource.slug }}_public_access" {
+  bucket = aws_s3_bucket.{{ resource.slug }}.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}

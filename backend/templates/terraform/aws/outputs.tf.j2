@@ -1,0 +1,73 @@
+# ============================================================
+# Outputs — CloudForge Generated for: {{ project_name }}
+# ============================================================
+
+{% if has_vpc %}
+{% for vpc in resources.get('vpc', []) %}
+output "vpc_id_{{ vpc.slug }}" {
+  description = "ID of VPC {{ vpc.props.get('name', vpc.slug) }}"
+  value       = aws_vpc.{{ vpc.slug }}.id
+}
+
+{% endfor %}
+{% endif %}
+
+{% if has_subnet %}
+{% for subnet in resources.get('subnet', []) %}
+output "subnet_id_{{ subnet.slug }}" {
+  description = "ID of Subnet {{ subnet.props.get('name', subnet.slug) }}"
+  value       = aws_subnet.{{ subnet.slug }}.id
+}
+
+{% endfor %}
+{% endif %}
+
+{% if has_ec2 %}
+{% for ec2 in resources.get('ec2', []) %}
+output "ec2_public_ip_{{ ec2.slug }}" {
+  description = "Public IP of EC2 {{ ec2.props.get('name', ec2.slug) }}"
+  value       = aws_instance.{{ ec2.slug }}.public_ip
+}
+
+output "ec2_instance_id_{{ ec2.slug }}" {
+  description = "Instance ID of EC2 {{ ec2.props.get('name', ec2.slug) }}"
+  value       = aws_instance.{{ ec2.slug }}.id
+}
+
+{% endfor %}
+{% endif %}
+
+{% if has_s3 %}
+{% for s3 in resources.get('s3', []) %}
+output "s3_bucket_{{ s3.slug }}" {
+  description = "S3 Bucket name {{ s3.props.get('bucketName', s3.slug) }}"
+  value       = aws_s3_bucket.{{ s3.slug }}.bucket
+}
+
+output "s3_bucket_arn_{{ s3.slug }}" {
+  description = "S3 Bucket ARN"
+  value       = aws_s3_bucket.{{ s3.slug }}.arn
+}
+
+{% endfor %}
+{% endif %}
+
+{% if has_rds %}
+{% for rds in resources.get('rds', []) %}
+output "rds_endpoint_{{ rds.slug }}" {
+  description = "RDS endpoint for {{ rds.props.get('identifier', rds.slug) }}"
+  value       = aws_db_instance.{{ rds.slug }}.endpoint
+}
+
+{% endfor %}
+{% endif %}
+
+{% if has_lb %}
+{% for lb in resources.get('load_balancer', []) %}
+output "lb_dns_{{ lb.slug }}" {
+  description = "DNS name of Load Balancer {{ lb.props.get('name', lb.slug) }}"
+  value       = aws_lb.{{ lb.slug }}.dns_name
+}
+
+{% endfor %}
+{% endif %}

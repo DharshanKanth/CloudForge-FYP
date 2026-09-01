@@ -1,0 +1,60 @@
+# ============================================================
+# Variables — CloudForge Generated for: {{ project_name }}
+# ============================================================
+
+variable "aws_region" {
+  description = "AWS region to deploy resources"
+  type        = string
+  default     = "us-east-1"
+}
+
+{% if has_vpc %}
+{% for vpc in resources.get('vpc', []) %}
+variable "vpc_cidr_{{ vpc.slug }}" {
+  description = "CIDR block for VPC {{ vpc.props.get('name', vpc.slug) }}"
+  type        = string
+  default     = "{{ vpc.props.get('cidr', '10.0.0.0/16') }}"
+}
+
+{% endfor %}
+{% endif %}
+
+{% if has_subnet %}
+{% for subnet in resources.get('subnet', []) %}
+variable "subnet_cidr_{{ subnet.slug }}" {
+  description = "CIDR block for Subnet {{ subnet.props.get('name', subnet.slug) }}"
+  type        = string
+  default     = "{{ subnet.props.get('cidr', '10.0.1.0/24') }}"
+}
+
+{% endfor %}
+{% endif %}
+
+{% if has_ec2 %}
+{% for ec2 in resources.get('ec2', []) %}
+variable "ec2_instance_type_{{ ec2.slug }}" {
+  description = "Instance type for EC2 {{ ec2.props.get('name', ec2.slug) }}"
+  type        = string
+  default     = "{{ ec2.props.get('instanceType', 't2.micro') }}"
+}
+
+variable "ec2_ami_{{ ec2.slug }}" {
+  description = "AMI ID for EC2 {{ ec2.props.get('name', ec2.slug) }}"
+  type        = string
+  default     = "{{ ec2.props.get('amiId', 'ami-0c55b159cbfafe1f0') }}"
+}
+
+{% endfor %}
+{% endif %}
+
+{% if has_rds %}
+{% for rds in resources.get('rds', []) %}
+variable "rds_password_{{ rds.slug }}" {
+  description = "Master password for RDS {{ rds.props.get('identifier', rds.slug) }}"
+  type        = string
+  sensitive   = true
+  default     = "changeme123!"
+}
+
+{% endfor %}
+{% endif %}
