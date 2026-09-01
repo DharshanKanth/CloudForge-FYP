@@ -9,28 +9,21 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  withCredentials: true,
 });
-
-// Attach token to every request
-api.interceptors.request.use((config) => {
-    withCredentials: true,
-    const token = localStorage.getItem('cloudforge_token');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-  } catch (e) {
-    // localStorage may be unavailable in some environments (SSR/tests)
-  }
-  return config;
-});
+// Do not attach Authorization header from localStorage; server uses httpOnly cookies.
 
 // Handle 401 globally
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('cloudforge_token');
-      localStorage.removeItem('cloudforge_user');
+      // Clear any persisted user metadata and redirect to login
+      try {
+        localStorage.removeItem('cloudforge_user');
+      } catch (e) {
+        // ignore
+      }
       window.location.href = '/login';
     }
     return Promise.reject(error);
@@ -74,5 +67,4 @@ export const terraformApi = {
 };
 
 export default api;
-
-    downloadUrl: (projectId: string) => `${API_BASE_URL || ''}/api/projects/${projectId}/terraform/download`,
+ 
