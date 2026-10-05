@@ -1,0 +1,16 @@
+resource "aws_cloudwatch_metric_alarm" "{{ resource.slug }}" {
+  alarm_name          = "{{ resource.props.get('name', resource.slug) }}"
+  alarm_description   = "{{ resource.props.get('description', 'Alarm managed by CloudForge') }}"
+  comparison_operator = "{{ resource.props.get('comparison', 'GreaterThanThreshold') }}"
+  evaluation_periods  = {{ resource.props.get('evaluationPeriods', 2) | hcl_int(2) }}
+  metric_name         = "{{ resource.props.get('metric', 'CPUUtilization') }}"
+  namespace           = "{{ resource.props.get('namespace', 'AWS/EC2') }}"
+  period              = {{ resource.props.get('period', 60) | hcl_int(60) }}
+  threshold           = {{ resource.props.get('threshold', 80) | hcl_int(80) }}
+  statistic           = "{{ resource.props.get('statistic', 'Average') }}"
+
+  tags = {
+    Name      = "{{ resource.props.get('name', resource.slug) }}"
+    ManagedBy = "CloudForge"
+  }
+}

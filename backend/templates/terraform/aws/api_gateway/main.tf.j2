@@ -1,0 +1,20 @@
+{% if resource.props.get('protocol', 'HTTP') == 'REST' %}
+resource "aws_api_gateway_rest_api" "{{ resource.slug }}" {
+  name = "{{ resource.props.get('name', resource.slug) }}"
+
+  tags = {
+    Name      = "{{ resource.props.get('name', resource.slug) }}"
+    ManagedBy = "CloudForge"
+  }
+}
+{% else %}
+resource "aws_apigatewayv2_api" "{{ resource.slug }}" {
+  name          = "{{ resource.props.get('name', resource.slug) }}"
+  protocol_type = "{{ resource.props.get('protocol', 'HTTP') }}"
+
+  tags = {
+    Name      = "{{ resource.props.get('name', resource.slug) }}"
+    ManagedBy = "CloudForge"
+  }
+}
+{% endif %}

@@ -27,6 +27,7 @@ class Edge(BaseModel):
 
 
 class ArchitectureSave(BaseModel):
+    aws_region: str = "us-east-1"
     nodes: List[Dict[str, Any]]
     edges: List[Dict[str, Any]]
 
@@ -34,6 +35,7 @@ class ArchitectureSave(BaseModel):
 class ArchitectureResponse(BaseModel):
     id: str
     project_id: str
+    aws_region: str = "us-east-1"
     nodes: List[Dict[str, Any]]
     edges: List[Dict[str, Any]]
     version: int
@@ -43,7 +45,7 @@ class ArchitectureResponse(BaseModel):
 
 
 class ValidationIssue(BaseModel):
-    level: str  # "error", "warning", "info"
+    level: str
     resource_id: Optional[str] = None
     resource_type: Optional[str] = None
     message: str

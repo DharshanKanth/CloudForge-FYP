@@ -1,0 +1,11 @@
+resource "aws_ebs_volume" "{{ resource.slug }}" {
+  availability_zone = "{{ resource.props.get('availabilityZone', 'us-east-1a') }}"
+  size              = {{ resource.props.get('size', 8) | hcl_int(8) }}
+  type              = "{{ resource.props.get('volumeType', 'gp3') }}"
+  encrypted         = true
+
+  tags = {
+    Name      = "{{ resource.props.get('name', resource.slug) }}"
+    ManagedBy = "CloudForge"
+  }
+}

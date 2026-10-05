@@ -2,7 +2,6 @@ import { type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
-  FolderOpen,
   Plus,
   Settings,
   LogOut,
@@ -13,7 +12,6 @@ import { useAuth } from '../hooks/useAuth';
 
 const navItems = [
   { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
-  { label: 'Projects', icon: FolderOpen, path: '/projects' },
   { label: 'Create Project', icon: Plus, path: '/projects/new' },
   { label: 'Settings', icon: Settings, path: '/settings' },
 ];

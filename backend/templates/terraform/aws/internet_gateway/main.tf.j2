@@ -1,0 +1,10 @@
+resource "aws_internet_gateway" "{{ resource.slug }}" {
+{% if resource.vpc_ref is defined and resource.vpc_ref %}
+  vpc_id = aws_vpc.{{ resource.vpc_ref }}.id
+{% endif %}
+
+  tags = {
+    Name      = "{{ resource.props.get('name', resource.slug) }}"
+    ManagedBy = "CloudForge"
+  }
+}

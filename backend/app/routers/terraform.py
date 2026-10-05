@@ -6,14 +6,36 @@ from app.database import get_db
 from app.models.project import Project
 from app.models.architecture import Architecture
 from app.models.user import User
+from app.models.deployment_event import DeploymentEvent
 from app.schemas.terraform import TerraformGenerateResponse, TerraformValidationResult
 from app.core.deps import get_current_user
 from app.services.terraform_service import generate_terraform_files
 from app.services.validation_service import validate_architecture
 from app.services.zip_service import create_terraform_zip
+from app.services import deployment_service
 import json
+import subprocess
 
 router = APIRouter()
+
+
+async def _create_event(
+    db: AsyncSession,
+    project_id: str,
+    event_type: str,
+    status: str,
+    detail: str = "",
+    resource_count=None,
+):
+    """Record one entry in the project's deployment history (audit log)."""
+    db.add(DeploymentEvent(
+        project_id=project_id,
+        event_type=event_type,
+        status=status,
+        detail=(detail or "")[:500],
+        resource_count=resource_count,
+    ))
+    await db.commit()
 
 
 @router.post("/{project_id}/terraform/generate", response_model=TerraformGenerateResponse)
@@ -27,12 +49,7 @@ async def generate_terraform(
 
     validation = validate_architecture(arch.nodes, arch.edges)
 
-    files = generate_terraform_files(
-        provider=project.provider,
-        nodes=arch.nodes,
-        edges=arch.edges,
-        project_name=project.name,
-    )
+    files = _generate_or_400(project, arch)
 
     return TerraformGenerateResponse(
         project_id=project_id,
@@ -51,12 +68,7 @@ async def get_terraform(
     project = await _get_project(project_id, current_user.id, db)
     arch = await _get_architecture(project_id, db)
 
-    files = generate_terraform_files(
-        provider=project.provider,
-        nodes=arch.nodes,
-        edges=arch.edges,
-        project_name=project.name,
-    )
+    files = _generate_or_400(project, arch)
 
     return {
         "project_id": project_id,
@@ -74,12 +86,7 @@ async def download_terraform_zip(
     project = await _get_project(project_id, current_user.id, db)
     arch = await _get_architecture(project_id, db)
 
-    files = generate_terraform_files(
-        provider=project.provider,
-        nodes=arch.nodes,
-        edges=arch.edges,
-        project_name=project.name,
-    )
+    files = _generate_or_400(project, arch)
 
     zip_buffer = create_terraform_zip(files, project.name)
 
@@ -91,6 +98,184 @@ async def download_terraform_zip(
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.post("/{project_id}/terraform/plan")
+async def plan_terraform(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    project = await _get_project(project_id, current_user.id, db)
+    arch = await _get_architecture(project_id, db)
+    validation = validate_architecture(arch.nodes, arch.edges)
+    if not validation.valid:
+        raise HTTPException(status_code=422, detail={
+            "message": "Fix validation errors before creating a deployment plan.",
+            "issues": [issue.model_dump() for issue in validation.issues],
+        })
+    files = _generate_or_400(project, arch)
+    result = await _run_deployment(deployment_service.plan, project_id, files)
+    if result["status"] == "planned":
+        project.status = "planned"
+        await db.commit()
+    await _create_event(
+        db, project_id, "plan",
+        "succeeded" if result["status"] == "planned" else "failed",
+        result.get("output", ""),
+        deployment_service.parse_resource_count(result.get("output", ""), "plan_add"),
+    )
+    return result
+
+
+@router.post("/{project_id}/terraform/apply")
+async def apply_terraform(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    project = await _get_project(project_id, current_user.id, db)
+    result = await _run_deployment(deployment_service.apply, project_id)
+    if result["status"] == "deployed":
+        project.status = "deployed"
+        await db.commit()
+    await _create_event(
+        db, project_id, "apply",
+        "succeeded" if result["status"] == "deployed" else "failed",
+        result.get("output", ""),
+        deployment_service.parse_resource_count(result.get("output", ""), "apply_added"),
+    )
+    return result
+
+
+@router.get("/{project_id}/terraform/infrastructure")
+async def get_infrastructure(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List the live infrastructure this project has deployed.
+
+    Reads the Terraform state file — the source of truth for the last
+    successful apply — so the UI can show exactly what is running (instance
+    IDs, public IPs, bucket names) without any cloud API calls.
+    """
+    project = await _get_project(project_id, current_user.id, db)
+    return deployment_service.infrastructure(project.id)
+
+
+@router.delete("/{project_id}/terraform/clear")
+async def clear_workspace(
+    project_id: str,
+    force: bool = False,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Delete the local Terraform workspace (state, plans) for a project.
+
+    Blocked with 409 while the state file tracks live resources — clearing
+    then would orphan real cloud infrastructure. Pass ``?force=true`` to
+    override deliberately (e.g. you already destroyed the resources).
+    """
+    project = await _get_project(project_id, current_user.id, db)
+    result = deployment_service.clear(project.id, force=force)
+    if result.get("status") == "blocked":
+        raise HTTPException(status_code=409, detail=result)
+    await _create_event(
+        db, project_id, "clear",
+        "succeeded",
+        result.get("message", "Workspace cleared"),
+        result.get("live_resources"),
+    )
+    return result
+
+
+@router.post("/{project_id}/terraform/plan-destroy")
+async def plan_destroy_terraform(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # Trust the Terraform state file (the source of truth for what is actually
+    # deployed) over the DB `status` column, which can drift out of sync —
+    # e.g. after a Dashboard-driven redeploy or a partial teardown. Without
+    # this, a live stack behind a stale "saved" status is impossible to destroy.
+    live = deployment_service.infrastructure(project_id)
+    if live.get("status") != "deployed":
+        raise HTTPException(status_code=409, detail="Nothing is deployed for this project yet.")
+    result = await _run_deployment(deployment_service.plan_destroy, project_id)
+    await _create_event(
+        db, project_id, "plan_destroy",
+        "succeeded" if result["status"] == "destroy_planned" else "failed",
+        result.get("output", ""),
+        deployment_service.parse_resource_count(result.get("output", ""), "plan_destroy"),
+    )
+    return result
+
+
+@router.post("/{project_id}/terraform/destroy")
+async def destroy_terraform(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    project = await _get_project(project_id, current_user.id, db)
+    result = await _run_deployment(deployment_service.destroy, project_id)
+    if result["status"] == "destroyed":
+        project.status = "saved"
+        await db.commit()
+    await _create_event(
+        db, project_id, "destroy",
+        "succeeded" if result["status"] == "destroyed" else "failed",
+        result.get("output", ""),
+        deployment_service.parse_resource_count(result.get("output", ""), "destroy_destroyed"),
+    )
+    return result
+
+
+@router.get("/{project_id}/deployment-events")
+async def get_deployment_events(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return the deployment history (audit log) for a project, newest first.
+
+    Every plan/apply/plan-destroy/destroy/clear action is recorded so the UI
+    can render a timeline of what was deployed, when, and whether it succeeded.
+    """
+    await _get_project(project_id, current_user.id, db)
+    result = await db.execute(
+        select(DeploymentEvent)
+        .where(DeploymentEvent.project_id == project_id)
+        .order_by(DeploymentEvent.created_at.desc())
+        .limit(100)
+    )
+    return [event.to_dict() for event in result.scalars().all()]
+
+
+def _generate_or_400(project: Project, arch: Architecture):
+    """Generate Terraform, mapping configuration errors to 400 instead of 500."""
+    try:
+        return generate_terraform_files(
+            provider=project.provider,
+            nodes=arch.nodes,
+            edges=arch.edges,
+            project_name=project.name,
+            aws_region=arch.aws_region,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+async def _run_deployment(operation, project_id: str, *args):
+    import asyncio
+    try:
+        return await asyncio.to_thread(operation, project_id, *args)
+    except FileNotFoundError:
+        return {"status": "failed", "step": "terraform", "output": "Terraform CLI is not available."}
+    except subprocess.TimeoutExpired:
+        return {"status": "failed", "step": "terraform", "output": "Terraform command timed out."}
 
 
 async def _get_project(project_id: str, user_id: str, db: AsyncSession) -> Project:

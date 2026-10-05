@@ -1,10 +1,10 @@
 resource "aws_db_instance" "{{ resource.slug }}" {
-  identifier        = "{{ resource.props.get('identifier', resource.slug) }}"
+  identifier        = "{{ aws_name(resource.props.get('identifier', resource.slug), 63) }}"
   engine            = "{{ resource.props.get('engine', 'mysql') }}"
   engine_version    = "{{ resource.props.get('engineVersion', '8.0') }}"
   instance_class    = "{{ resource.props.get('instanceClass', 'db.t3.micro') }}"
-  allocated_storage = {{ resource.props.get('storage', 20) }}
-  storage_type      = "gp2"
+  allocated_storage = {{ resource.props.get('storage', 20) | hcl_int(20) }}
+  storage_type      = "{{ resource.props.get('storageType', 'gp2') }}"
   storage_encrypted = true
 
   db_name  = "{{ resource.props.get('dbName', 'mydb') }}"
@@ -31,8 +31,10 @@ resource "aws_db_instance" "{{ resource.slug }}" {
 
 {% if resource.subnet_ref is defined and resource.subnet_ref %}
 resource "aws_db_subnet_group" "{{ resource.slug }}_subnet_group" {
-  name       = "{{ resource.slug }}-subnet-group"
-  subnet_ids = [aws_subnet.{{ resource.subnet_ref }}.id]
+  name       = "{{ aws_name(resource.slug ~ '-subnet-group', 63) }}"
+  # RDS requires subnets in at least 2 AZs — include every subnet in the VPC
+  # so the group satisfies the coverage requirement regardless of topology.
+  subnet_ids = [{% for subnet_ref in resource.get('subnet_group_refs', [resource.subnet_ref]) %}aws_subnet.{{ subnet_ref }}.id{% if not loop.last %}, {% endif %}{% endfor %}]
 
   tags = {
     Name      = "{{ resource.slug }}-subnet-group"

@@ -1,0 +1,10 @@
+resource "aws_kms_key" "{{ resource.slug }}" {
+  description             = "{{ resource.props.get('description', 'Managed by CloudForge') }}"
+  deletion_window_in_days = {{ resource.props.get('deletionWindowDays', 7) | hcl_int(7) }}
+  enable_key_rotation     = true
+
+  tags = {
+    Name      = "{{ resource.props.get('name', resource.slug) }}"
+    ManagedBy = "CloudForge"
+  }
+}

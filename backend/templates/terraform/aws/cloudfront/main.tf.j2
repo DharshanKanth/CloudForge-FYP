@@ -1,0 +1,45 @@
+resource "aws_cloudfront_distribution" "{{ resource.slug }}" {
+  enabled = true
+  comment = "{{ resource.props.get('name', resource.slug) }}"
+
+  origin {
+{% if resource.s3_ref is defined and resource.s3_ref %}
+    domain_name = aws_s3_bucket.{{ resource.s3_ref }}.bucket_regional_domain_name
+{% else %}
+    domain_name = "{{ resource.props.get('originDomain', 'example-bucket.s3.amazonaws.com') }}"
+{% endif %}
+    origin_id   = "{{ resource.slug }}-origin"
+  }
+
+  default_cache_behavior {
+    target_origin_id       = "{{ resource.slug }}-origin"
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["GET", "HEAD", "OPTIONS"]
+    cached_methods         = ["GET", "HEAD"]
+
+    forwarded_values {
+      query_string = false
+
+      cookies {
+        forward = "none"
+      }
+    }
+  }
+
+  viewer_certificate {
+    cloudfront_default_certificate = true
+  }
+
+  restrictions {
+    geo_restriction {
+      restriction_type = "none"
+    }
+  }
+
+  price_class = "{{ resource.props.get('priceClass', 'PriceClass_100') }}"
+
+  tags = {
+    Name      = "{{ resource.props.get('name', resource.slug) }}"
+    ManagedBy = "CloudForge"
+  }
+}

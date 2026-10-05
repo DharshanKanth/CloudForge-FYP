@@ -1,8 +1,11 @@
 resource "aws_lb" "{{ resource.slug }}" {
-  name               = "{{ resource.props.get('name', resource.slug) }}"
+  name               = "{{ aws_name(resource.props.get('name', resource.slug)) }}"
   internal           = {{ 'true' if resource.props.get('internal', False) else 'false' }}
   load_balancer_type = "{{ resource.props.get('lbType', 'application') }}"
 
+{% if resource.subnet_refs is defined and resource.subnet_refs %}
+  subnets = [{% for subnet_ref in resource.subnet_refs %}aws_subnet.{{ subnet_ref }}.id{% if not loop.last %}, {% endif %}{% endfor %}]
+{% endif %}
 {% if resource.sg_refs is defined and resource.sg_refs %}
   security_groups = [{% for sg in resource.sg_refs %}aws_security_group.{{ sg }}.id{% if not loop.last %}, {% endif %}{% endfor %}]
 {% endif %}
@@ -17,10 +20,12 @@ resource "aws_lb" "{{ resource.slug }}" {
 
 {% if resource.target_ec2_refs is defined and resource.target_ec2_refs %}
 resource "aws_lb_target_group" "{{ resource.slug }}_tg" {
-  name     = "{{ resource.slug }}-tg"
+  name     = "{{ aws_name(resource.slug ~ '-tg') }}"
   port     = 80
   protocol = "HTTP"
-{% if has_vpc %}
+{% if resource.vpc_ref is defined and resource.vpc_ref %}
+  vpc_id   = aws_vpc.{{ resource.vpc_ref }}.id
+{% elif vpcs %}
   vpc_id   = aws_vpc.{{ vpcs[0].slug }}.id
 {% endif %}
 

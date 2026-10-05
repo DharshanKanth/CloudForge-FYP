@@ -1,0 +1,25 @@
+resource "aws_lambda_function" "{{ resource.slug }}" {
+  function_name = "{{ resource.props.get('functionName', resource.slug) }}"
+  runtime       = "{{ resource.props.get('runtime', 'python3.12') }}"
+  handler       = "{{ resource.props.get('handler', 'lambda_function.lambda_handler') }}"
+  filename      = "{{ resource.props.get('filename', 'lambda.zip') }}"
+  memory_size   = {{ resource.props.get('memorySize', 128) | hcl_int(128) }}
+  timeout       = {{ resource.props.get('timeout', 30) | hcl_int(30) }}
+  # Replace this placeholder with the real hash of your deployment package, e.g.:
+  #   source_code_hash = filebase64sha256("{{ resource.props.get('filename', 'lambda.zip') }}")
+  source_code_hash = "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU="
+{% if resource.role_ref is defined and resource.role_ref %}
+  role = aws_iam_role.{{ resource.role_ref }}.arn
+{% endif %}
+{% if resource.subnet_ref is defined and resource.subnet_ref and resource.sg_refs %}
+  vpc_config {
+    subnet_ids         = [aws_subnet.{{ resource.subnet_ref }}.id]
+    security_group_ids = [{% for sg in resource.sg_refs %}aws_security_group.{{ sg }}.id{% if not loop.last %}, {% endif %}{% endfor %}]
+  }
+{% endif %}
+
+  tags = {
+    Name      = "{{ resource.props.get('functionName', resource.slug) }}"
+    ManagedBy = "CloudForge"
+  }
+}

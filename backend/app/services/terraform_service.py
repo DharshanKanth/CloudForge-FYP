@@ -13,10 +13,11 @@ def generate_terraform_files(
     nodes: List[Dict],
     edges: List[Dict],
     project_name: str,
+    aws_region: str = "us-east-1",
 ) -> List[TerraformFile]:
     """
     Main entry point for Terraform generation.
     Returns a list of TerraformFile objects ready to display or zip.
     """
     generator = get_generator(provider)
-    return generator.generate(nodes=nodes, edges=edges, project_name=project_name)
+    return generator.generate(nodes=nodes, edges=edges, project_name=project_name, aws_region=aws_region)

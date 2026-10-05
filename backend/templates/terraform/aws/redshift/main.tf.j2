@@ -1,0 +1,31 @@
+resource "aws_redshift_cluster" "{{ resource.slug }}" {
+  cluster_identifier  = "{{ aws_name(resource.props.get('clusterIdentifier', resource.slug), 63) }}"
+  database_name       = "{{ resource.props.get('dbName', 'analytics') }}"
+  master_username     = "{{ resource.props.get('username', 'admin') }}"
+  manage_master_password = true
+  node_type           = "{{ resource.props.get('nodeType', 'dc2.large') }}"
+  number_of_nodes     = {{ resource.props.get('numberOfNodes', 2) | hcl_int(2) }}
+  skip_final_snapshot = true
+  publicly_accessible = false
+
+{% if resource.subnet_ref is defined and resource.subnet_ref %}
+  cluster_subnet_group_name = aws_redshift_subnet_group.{{ resource.slug }}_subnet_group.name
+{% endif %}
+
+  tags = {
+    Name      = "{{ resource.props.get('clusterIdentifier', resource.slug) }}"
+    ManagedBy = "CloudForge"
+  }
+}
+
+{% if resource.subnet_ref is defined and resource.subnet_ref %}
+resource "aws_redshift_subnet_group" "{{ resource.slug }}_subnet_group" {
+  name       = "{{ resource.slug }}-subnet-group"
+  subnet_ids = [{% for subnet_ref in resource.get('subnet_group_refs', [resource.subnet_ref]) %}aws_subnet.{{ subnet_ref }}.id{% if not loop.last %}, {% endif %}{% endfor %}]
+
+  tags = {
+    Name      = "{{ resource.slug }}-subnet-group"
+    ManagedBy = "CloudForge"
+  }
+}
+{% endif %}

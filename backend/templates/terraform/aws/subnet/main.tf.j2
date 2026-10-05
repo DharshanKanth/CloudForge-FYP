@@ -1,11 +1,9 @@
 resource "aws_subnet" "{{ resource.slug }}" {
 {% if resource.vpc_ref is defined and resource.vpc_ref %}
   vpc_id     = aws_vpc.{{ resource.vpc_ref }}.id
-{% else %}
-  vpc_id     = "" # Connect this subnet to a VPC in the visual builder
 {% endif %}
   cidr_block = var.subnet_cidr_{{ resource.slug }}
-  availability_zone = "{{ resource.props.get('availabilityZone', 'us-east-1a') }}"
+  availability_zone = "{{ resource.get('az', aws_region ~ 'a') }}"
 
   map_public_ip_on_launch = {{ 'true' if resource.props.get('mapPublicIp', True) else 'false' }}
 

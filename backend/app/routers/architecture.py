@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.database import get_db
@@ -46,12 +47,14 @@ async def save_architecture(
     if arch:
         arch.nodes = arch_data.nodes
         arch.edges = arch_data.edges
+        arch.aws_region = arch_data.aws_region
         arch.version = arch.version + 1
     else:
         arch = Architecture(
             project_id=project_id,
             nodes=arch_data.nodes,
             edges=arch_data.edges,
+            aws_region=arch_data.aws_region,
         )
         db.add(arch)
 
@@ -61,7 +64,22 @@ async def save_architecture(
     if project:
         project.status = "saved"
 
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Two concurrent first saves can both take the insert path on the
+        # unique project_id; fall back to updating the winner's row.
+        await db.rollback()
+        result = await db.execute(
+            select(Architecture).where(Architecture.project_id == project_id)
+        )
+        arch = result.scalar_one_or_none()
+        if not arch:
+            raise
+        arch.nodes = arch_data.nodes
+        arch.edges = arch_data.edges
+        arch.version = arch.version + 1
+        await db.commit()
     await db.refresh(arch)
     return arch
 

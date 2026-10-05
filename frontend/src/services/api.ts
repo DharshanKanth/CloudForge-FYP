@@ -13,18 +13,66 @@ const api = axios.create({
 });
 // Do not attach Authorization header from localStorage; server uses httpOnly cookies.
 
-// Handle 401 globally
+// Endpoints where a 401 means "wrong credentials", not "expired session" —
+// refreshing (and redirecting) on them would wipe the user's error feedback.
+const AUTH_EXCLUDED_PATHS = ['/api/auth/login', '/api/auth/register', '/api/auth/refresh'];
+
+let refreshInFlight: Promise<boolean> | null = null;
+
+function clearStoredUser() {
+  try {
+    localStorage.removeItem('cloudforge_user');
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Hard-navigate to /login on session expiry, but NEVER when we're already
+ * there. AuthProvider mounts on /login too and probes /api/auth/me, so an
+ * unconditional redirect would reload the page, re-probe, 401 again, and
+ * loop forever (visible as the page refreshing and cancelling requests).
+ */
+function redirectToLogin() {
+  if (window.location.pathname !== '/login') {
+    window.location.href = '/login';
+  }
+}
+
+/** Single-flight silent refresh: parallel 401s share one refresh call. */
+function tryRefresh(): Promise<boolean> {
+  if (!refreshInFlight) {
+    refreshInFlight = api
+      .post('/api/auth/refresh')
+      .then(() => true)
+      .catch(() => false)
+      .finally(() => {
+        refreshInFlight = null;
+      });
+  }
+  return refreshInFlight;
+}
+
+// Handle 401 globally: attempt one silent session refresh and retry the
+// original request; only sign out if the refresh itself fails.
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      // Clear any persisted user metadata and redirect to login
-      try {
-        localStorage.removeItem('cloudforge_user');
-      } catch (e) {
-        // ignore
+  async (error) => {
+    const config = error.config as (typeof error.config & { _retriedAfterRefresh?: boolean }) | undefined;
+    const url: string = config?.url || '';
+    const isAuthCall = AUTH_EXCLUDED_PATHS.some((p) => url.includes(p));
+
+    if (error.response?.status === 401 && config && !config._retriedAfterRefresh && !isAuthCall) {
+      config._retriedAfterRefresh = true;
+      if (await tryRefresh()) {
+        return api.request(config);
       }
-      window.location.href = '/login';
+      clearStoredUser();
+      redirectToLogin();
+    } else if (error.response?.status === 401 && !isAuthCall) {
+      // Retry already happened (or was not possible) and refresh failed.
+      clearStoredUser();
+      redirectToLogin();
     }
     return Promise.reject(error);
   }
@@ -36,6 +84,7 @@ export const authApi = {
     api.post('/api/auth/register', data),
   login: (data: { email: string; password: string }) =>
     api.post('/api/auth/login', data),
+  me: () => api.get('/api/auth/me'),
   refresh: () => api.post('/api/auth/refresh'),
   logout: () => api.post('/api/auth/logout'),
 };
@@ -54,7 +103,7 @@ export const projectsApi = {
 // Architecture
 export const architectureApi = {
   get: (projectId: string) => api.get(`/api/projects/${projectId}/architecture`),
-  save: (projectId: string, data: { nodes: any[]; edges: any[] }) =>
+  save: (projectId: string, data: { nodes: any[]; edges: any[]; aws_region?: string }) =>
     api.put(`/api/projects/${projectId}/architecture`, data),
   validate: (projectId: string) => api.post(`/api/projects/${projectId}/validate`),
 };
@@ -63,8 +112,22 @@ export const architectureApi = {
 export const terraformApi = {
   generate: (projectId: string) => api.post(`/api/projects/${projectId}/terraform/generate`),
   get: (projectId: string) => api.get(`/api/projects/${projectId}/terraform`),
+  plan: (projectId: string) => api.post(`/api/projects/${projectId}/terraform/plan`),
+  apply: (projectId: string) => api.post(`/api/projects/${projectId}/terraform/apply`),
+  planDestroy: (projectId: string) => api.post(`/api/projects/${projectId}/terraform/plan-destroy`),
+  destroy: (projectId: string) => api.post(`/api/projects/${projectId}/terraform/destroy`),
+  infrastructure: (projectId: string) => api.get(`/api/projects/${projectId}/terraform/infrastructure`),
+  events: (projectId: string) => api.get(`/api/projects/${projectId}/deployment-events`),
+  clear: (projectId: string, force?: boolean) =>
+    api.delete(`/api/projects/${projectId}/terraform/clear`, {
+      params: force ? { force: true } : undefined,
+    }),
   downloadUrl: (projectId: string) => `${API_BASE_URL || ''}/api/projects/${projectId}/terraform/download`,
 };
 
+// Live infrastructure (dashboard bulk summary)
+export const infrastructureApi = {
+  summary: () => api.get('/api/infrastructure'),
+};
+
 export default api;
- 

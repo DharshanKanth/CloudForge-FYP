@@ -5,7 +5,7 @@
 variable "aws_region" {
   description = "AWS region to deploy resources"
   type        = string
-  default     = "us-east-1"
+  default     = "{{ aws_region }}"
 }
 
 {% if has_vpc %}
@@ -38,12 +38,6 @@ variable "ec2_instance_type_{{ ec2.slug }}" {
   default     = "{{ ec2.props.get('instanceType', 't2.micro') }}"
 }
 
-variable "ec2_ami_{{ ec2.slug }}" {
-  description = "AMI ID for EC2 {{ ec2.props.get('name', ec2.slug) }}"
-  type        = string
-  default     = "{{ ec2.props.get('amiId', 'ami-0c55b159cbfafe1f0') }}"
-}
-
 {% endfor %}
 {% endif %}
 
@@ -53,7 +47,7 @@ variable "rds_password_{{ rds.slug }}" {
   description = "Master password for RDS {{ rds.props.get('identifier', rds.slug) }}"
   type        = string
   sensitive   = true
-  default     = "changeme123!"
+  # No default: CloudForge generates the value into terraform.auto.tfvars.
 }
 
 {% endfor %}

@@ -4,7 +4,6 @@ import { authApi } from '../services/api';
 
 interface AuthContextType {
   user: User | null;
-  token: string | null;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, username: string, password: string) => Promise<void>;
   logout: () => void;
@@ -15,15 +14,43 @@ const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const storedUser = localStorage.getItem('cloudforge_user');
-    if (storedUser) {
-      setUser(JSON.parse(storedUser));
-    }
-    setIsLoading(false);
+    let cancelled = false;
+
+    const restore = async () => {
+      // Optimistically restore the cached profile, then revalidate the
+      // cookie-backed session against the server.
+      let stored: User | null = null;
+      try {
+        const raw = localStorage.getItem('cloudforge_user');
+        stored = raw ? (JSON.parse(raw) as User) : null;
+      } catch {
+        localStorage.removeItem('cloudforge_user');
+      }
+      if (stored && !cancelled) setUser(stored);
+
+      try {
+        // On 401 the api interceptor refreshes once and retries automatically.
+        const res = await authApi.me();
+        if (!cancelled) {
+          setUser(res.data);
+          localStorage.setItem('cloudforge_user', JSON.stringify(res.data));
+        }
+      } catch {
+        // Session revalidation failed: either a 401 (already handled globally —
+        // refresh attempted, then signed out) or a network problem, in which
+        // case we keep the cached profile rather than logging the user out.
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    };
+
+    restore();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const login = async (email: string, password: string) => {
@@ -42,14 +69,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
-    setToken(null);
     setUser(null);
     localStorage.removeItem('cloudforge_user');
     authApi.logout();
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, login, register, logout, isLoading }}>
+    <AuthContext.Provider value={{ user, login, register, logout, isLoading }}>
       {children}
     </AuthContext.Provider>
   );

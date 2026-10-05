@@ -61,6 +61,7 @@ export interface ResourceNode {
   id: string;
   type: string;
   position: { x: number; y: number };
+  parentId?: string;
   data: {
     label: string;
     resourceType: string;
@@ -81,6 +82,7 @@ export interface ResourceEdge {
 export interface Architecture {
   id: string;
   project_id: string;
+  aws_region?: string;
   nodes: ResourceNode[];
   edges: ResourceEdge[];
   version: number;
@@ -122,4 +124,70 @@ export type ResourceType =
   | 's3'
   | 'rds'
   | 'security_group'
-  | 'load_balancer';
+  | 'load_balancer'
+  | 'internet_gateway'
+  | 'route_table'
+  | 'nat_gateway'
+  | 'lambda'
+  | 'dynamodb'
+  | 'iam_role'
+  | 'cloudfront'
+  | 'api_gateway'
+  | 'route53_zone'
+  | 'route53_record'
+  | 'elastic_ip'
+  | 'ebs_volume'
+  | 'ecr_repository'
+  | 'ecs_cluster'
+  | 'efs'
+  | 'elasticache'
+  | 'aurora'
+  | 'redshift'
+  | 'kinesis_stream'
+  | 'sqs'
+  | 'sns'
+  | 'step_function'
+  | 'secretsmanager'
+  | 'cloudwatch_alarm'
+  | 'cloudwatch_log_group'
+  | 'kms_key';
+
+// ── Live infrastructure (read from Terraform state after a successful apply) ─
+export interface InfraResource {
+  address: string;
+  type: string;
+  name: string;
+  label: string;
+  id: string;
+  category: 'compute' | 'network' | 'data';
+  attributes: Record<string, any>;
+}
+
+export interface Infrastructure {
+  status: 'deployed' | 'not_deployed';
+  resources: InfraResource[];
+  outputs: Record<string, any>;
+  region: string;
+  state_updated_at: number | null;
+}
+
+// Dashboard bulk summary (GET /api/infrastructure)
+export interface InfraStackSummary extends Infrastructure {
+  project_id: string;
+  name?: string;
+  provider?: string;
+  resource_count: number;
+  categories: Record<string, number>;
+  recent_events?: DeploymentEvent[];
+}
+
+// Deployment history (audit log) — one entry per plan/apply/destroy action
+export interface DeploymentEvent {
+  id: string;
+  project_id: string;
+  event_type: 'plan' | 'apply' | 'plan_destroy' | 'destroy' | 'clear';
+  status: 'succeeded' | 'failed' | 'blocked';
+  detail?: string;
+  resource_count?: number | null;
+  created_at: string | null;
+}

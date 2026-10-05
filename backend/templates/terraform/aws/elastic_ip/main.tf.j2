@@ -1,0 +1,11 @@
+resource "aws_eip" "{{ resource.slug }}" {
+  domain = "vpc"
+{% if resource.instance_ref is defined and resource.instance_ref %}
+  instance = aws_instance.{{ resource.instance_ref }}.id
+{% endif %}
+
+  tags = {
+    Name      = "{{ resource.props.get('name', resource.slug) }}"
+    ManagedBy = "CloudForge"
+  }
+}

@@ -15,3 +15,20 @@ provider "aws" {
   # AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN
   # Never hardcode credentials in Terraform files.
 }
+
+# Look up the latest Amazon Linux 2023 AMI dynamically so the generated
+# HCL works in any region without a hardcoded (and soon stale) AMI id.
+data "aws_ami" "amazon_linux" {
+  most_recent = true
+  owners      = ["amazon"]
+
+  filter {
+    name   = "name"
+    values = ["al2023-ami-*-x86_64"]
+  }
+
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+}

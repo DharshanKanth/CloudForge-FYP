@@ -1,0 +1,13 @@
+resource "aws_ecs_cluster" "{{ resource.slug }}" {
+  name = "{{ resource.props.get('name', resource.slug) }}"
+
+  setting {
+    name  = "containerInsights"
+    value = "{{ 'enabled' if resource.props.get('containerInsights', False) else 'disabled' }}"
+  }
+
+  tags = {
+    Name      = "{{ resource.props.get('name', resource.slug) }}"
+    ManagedBy = "CloudForge"
+  }
+}

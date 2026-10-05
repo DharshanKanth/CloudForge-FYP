@@ -1,0 +1,19 @@
+resource "aws_dynamodb_table" "{{ resource.slug }}" {
+  name         = "{{ resource.props.get('tableName', resource.slug) }}"
+  billing_mode = "{{ resource.props.get('billingMode', 'PAY_PER_REQUEST') }}"
+{% if resource.props.get('billingMode', 'PAY_PER_REQUEST') == 'PROVISIONED' %}
+  read_capacity  = {{ resource.props.get('readCapacity', 5) | hcl_int(5) }}
+  write_capacity = {{ resource.props.get('writeCapacity', 5) | hcl_int(5) }}
+{% endif %}
+  hash_key     = "{{ resource.props.get('hashKey', 'id') }}"
+
+  attribute {
+    name = "{{ resource.props.get('hashKey', 'id') }}"
+    type = "{{ resource.props.get('hashKeyType', 'S') }}"
+  }
+
+  tags = {
+    Name      = "{{ resource.props.get('tableName', resource.slug) }}"
+    ManagedBy = "CloudForge"
+  }
+}

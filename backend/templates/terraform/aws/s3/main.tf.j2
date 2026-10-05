@@ -1,5 +1,5 @@
 resource "aws_s3_bucket" "{{ resource.slug }}" {
-  bucket = "{{ resource.props.get('bucketName', resource.slug) }}"
+  bucket = "{{ aws_name(resource.props.get('bucketName', resource.slug), 55) }}-{{ random_suffix(8) }}"
 
   tags = {
     Name        = "{{ resource.props.get('bucketName', resource.slug) }}"

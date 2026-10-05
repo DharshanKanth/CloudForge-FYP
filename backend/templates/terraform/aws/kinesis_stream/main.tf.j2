@@ -1,0 +1,15 @@
+resource "aws_kinesis_stream" "{{ resource.slug }}" {
+  name             = "{{ resource.props.get('name', resource.slug) }}"
+  shard_count      = {{ resource.props.get('shardCount', 1) | hcl_int(1) }}
+  retention_period = {{ resource.props.get('retentionHours', 24) | hcl_int(24) }}
+
+  shard_level_metrics = [
+    "IncomingBytes",
+    "OutgoingBytes",
+  ]
+
+  tags = {
+    Name      = "{{ resource.props.get('name', resource.slug) }}"
+    ManagedBy = "CloudForge"
+  }
+}

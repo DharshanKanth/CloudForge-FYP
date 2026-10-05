@@ -1,0 +1,9 @@
+resource "aws_route53_record" "{{ resource.slug }}" {
+{% if resource.zone_ref is defined and resource.zone_ref %}
+  zone_id = aws_route53_zone.{{ resource.zone_ref }}.zone_id
+{% endif %}
+  name    = "{{ resource.props.get('name', resource.slug) }}"
+  type    = "{{ resource.props.get('recordType', 'A') }}"
+  ttl     = {{ resource.props.get('ttl', 300) | hcl_int(300) }}
+  records = ["{{ resource.props.get('recordValue', '10.0.0.10') }}"]
+}

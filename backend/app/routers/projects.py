@@ -25,13 +25,15 @@ async def create_project(
         provider=project_data.provider,
     )
     db.add(project)
-    await db.commit()
-    await db.refresh(project)
+    # flush() populates project.id (Python-side uuid default) without ending
+    # the transaction, so the project and its empty architecture are created
+    # atomically — a failure can no longer leave a project with no architecture.
+    await db.flush()
 
-    # Create empty architecture for the project
     arch = Architecture(project_id=project.id, nodes=[], edges=[])
     db.add(arch)
     await db.commit()
+    await db.refresh(project)
 
     return _project_to_response(project, 0)
 
@@ -41,22 +43,23 @@ async def list_projects(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # Single query: join each project with its (unique) architecture to obtain
+    # resource counts, instead of issuing one query per project (N+1).
     result = await db.execute(
-        select(Project).where(Project.user_id == current_user.id).order_by(Project.updated_at.desc())
+        select(Project, Architecture)
+        .outerjoin(Architecture, Architecture.project_id == Project.id)
+        .where(Project.user_id == current_user.id)
+        .order_by(Project.updated_at.desc())
     )
-    projects = result.scalars().all()
+    rows = result.all()
 
-    responses = []
-    for proj in projects:
-        # Get resource count
-        arch_result = await db.execute(
-            select(Architecture).where(Architecture.project_id == proj.id)
+    return [
+        _project_to_response(
+            project,
+            len(arch.nodes) if arch and arch.nodes else 0,
         )
-        arch = arch_result.scalar_one_or_none()
-        count = len(arch.nodes) if arch and arch.nodes else 0
-        responses.append(_project_to_response(proj, count))
-
-    return responses
+        for project, arch in rows
+    ]
 
 
 @router.get("/{project_id}", response_model=ProjectResponse)
@@ -92,7 +95,13 @@ async def update_project(
 
     await db.commit()
     await db.refresh(project)
-    return _project_to_response(project, 0)
+
+    arch_result = await db.execute(
+        select(Architecture).where(Architecture.project_id == project.id)
+    )
+    arch = arch_result.scalar_one_or_none()
+    count = len(arch.nodes) if arch and arch.nodes else 0
+    return _project_to_response(project, count)
 
 
 @router.delete("/{project_id}")

@@ -1,0 +1,23 @@
+resource "aws_efs_file_system" "{{ resource.slug }}" {
+  creation_token   = "{{ resource.slug }}"
+  performance_mode = "{{ resource.props.get('performanceMode', 'generalPurpose') }}"
+  throughput_mode  = "{{ resource.props.get('throughputMode', 'bursting') }}"
+  encrypted        = true
+
+  tags = {
+    Name      = "{{ resource.props.get('name', resource.slug) }}"
+    ManagedBy = "CloudForge"
+  }
+}
+
+{% if resource.subnet_ref is defined and resource.subnet_ref %}
+resource "aws_efs_mount_target" "{{ resource.slug }}_mount" {
+  file_system_id = aws_efs_file_system.{{ resource.slug }}.id
+  subnet_id      = aws_subnet.{{ resource.subnet_ref }}.id
+
+  tags = {
+    Name      = "{{ resource.props.get('name', resource.slug) }}-mount"
+    ManagedBy = "CloudForge"
+  }
+}
+{% endif %}

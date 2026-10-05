@@ -1,5 +1,7 @@
 resource "aws_instance" "{{ resource.slug }}" {
-  ami           = var.ec2_ami_{{ resource.slug }}
+  # Use the latest Amazon Linux 2023 AMI for the deployment region.
+  # A hardcoded amiId from another region is not valid in the current region.
+  ami           = data.aws_ami.amazon_linux.id
   instance_type = var.ec2_instance_type_{{ resource.slug }}
 {% if resource.subnet_ref is defined and resource.subnet_ref %}
   subnet_id     = aws_subnet.{{ resource.subnet_ref }}.id
@@ -9,9 +11,19 @@ resource "aws_instance" "{{ resource.slug }}" {
 {% if resource.sg_refs is defined and resource.sg_refs %}
   vpc_security_group_ids = [{% for sg in resource.sg_refs %}aws_security_group.{{ sg }}.id{% if not loop.last %}, {% endif %}{% endfor %}]
 {% endif %}
+{% if resource.props.get('keyPairName') %}
+  key_name      = "{{ resource.props.get('keyPairName') }}"
+{% endif %}
 
   # Associate a public IP if in a public subnet
   associate_public_ip_address = {{ 'true' if resource.props.get('associatePublicIp', True) else 'false' }}
+  monitoring                  = {{ 'true' if resource.props.get('monitoring', False) else 'false' }}
+
+  root_block_device {
+    volume_size = {{ resource.props.get('rootVolumeSize', 30) | hcl_int(8) }}
+    volume_type = "{{ resource.props.get('rootVolumeType', 'gp3') }}"
+    encrypted   = true
+  }
 
   tags = {
     Name      = "{{ resource.props.get('name', resource.slug) }}"

@@ -1,0 +1,9 @@
+resource "aws_cloudwatch_log_group" "{{ resource.slug }}" {
+  name              = "/cloudforge/{{ resource.props.get('name', resource.slug) }}"
+  retention_in_days = {{ resource.props.get('retentionDays', 30) | hcl_int(30) }}
+
+  tags = {
+    Name      = "{{ resource.props.get('name', resource.slug) }}"
+    ManagedBy = "CloudForge"
+  }
+}

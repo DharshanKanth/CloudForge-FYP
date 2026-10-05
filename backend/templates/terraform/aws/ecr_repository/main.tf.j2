@@ -1,0 +1,14 @@
+resource "aws_ecr_repository" "{{ resource.slug }}" {
+  name                 = "{{ resource.props.get('name', resource.slug) }}"
+  image_tag_mutability = "{{ resource.props.get('imageTagMutability', 'MUTABLE') }}"
+  force_delete         = true
+
+  image_scanning_configuration {
+    scan_on_push = {{ 'true' if resource.props.get('scanOnPush', True) else 'false' }}
+  }
+
+  tags = {
+    Name      = "{{ resource.props.get('name', resource.slug) }}"
+    ManagedBy = "CloudForge"
+  }
+}

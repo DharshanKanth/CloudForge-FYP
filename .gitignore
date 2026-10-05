@@ -14,3 +14,4 @@ postgres_data/
 .terraform/
 *.tfstate
 *.tfstate.backup
+deployments/

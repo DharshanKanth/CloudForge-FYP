@@ -1,0 +1,10 @@
+resource "aws_secretsmanager_secret" "{{ resource.slug }}" {
+  name                    = "{{ resource.props.get('name', resource.slug) }}"
+  description             = "{{ resource.props.get('description', 'Managed by CloudForge') }}"
+  recovery_window_in_days = {{ resource.props.get('recoveryWindowDays', 7) | hcl_int(7) }}
+
+  tags = {
+    Name      = "{{ resource.props.get('name', resource.slug) }}"
+    ManagedBy = "CloudForge"
+  }
+}

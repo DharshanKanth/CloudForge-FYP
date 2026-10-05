@@ -1,0 +1,25 @@
+resource "aws_route_table" "{{ resource.slug }}" {
+{% if resource.vpc_ref is defined and resource.vpc_ref %}
+  vpc_id = aws_vpc.{{ resource.vpc_ref }}.id
+{% endif %}
+
+  tags = {
+    Name      = "{{ resource.props.get('name', resource.slug) }}"
+    ManagedBy = "CloudForge"
+  }
+}
+
+{% if resource.props.get('destinationCidr') and resource.igw_ref is defined and resource.igw_ref %}
+resource "aws_route" "{{ resource.slug }}_igw_route" {
+  route_table_id         = aws_route_table.{{ resource.slug }}.id
+  destination_cidr_block = "{{ resource.props.get('destinationCidr') }}"
+  gateway_id             = aws_internet_gateway.{{ resource.igw_ref }}.id
+}
+{% endif %}
+
+{% if resource.subnet_ref is defined and resource.subnet_ref %}
+resource "aws_route_table_association" "{{ resource.slug }}_subnet" {
+  subnet_id      = aws_subnet.{{ resource.subnet_ref }}.id
+  route_table_id = aws_route_table.{{ resource.slug }}.id
+}
+{% endif %}

@@ -1,0 +1,8 @@
+resource "aws_route53_zone" "{{ resource.slug }}" {
+  name = "{{ resource.props.get('domainName', resource.props.get('name', resource.slug)) }}"
+
+  tags = {
+    Name      = "{{ resource.props.get('name', resource.slug) }}"
+    ManagedBy = "CloudForge"
+  }
+}

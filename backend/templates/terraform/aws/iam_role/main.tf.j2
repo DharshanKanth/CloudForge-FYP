@@ -1,0 +1,19 @@
+resource "aws_iam_role" "{{ resource.slug }}" {
+  name = "{{ resource.props.get('name', resource.slug) }}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Service = "{{ resource.props.get('service', 'lambda.amazonaws.com') }}"
+      }
+      Action = "sts:AssumeRole"
+    }]
+  })
+
+  tags = {
+    Name      = "{{ resource.props.get('name', resource.slug) }}"
+    ManagedBy = "CloudForge"
+  }
+}

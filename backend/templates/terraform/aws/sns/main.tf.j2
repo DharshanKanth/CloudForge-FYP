@@ -1,0 +1,11 @@
+resource "aws_sns_topic" "{{ resource.slug }}" {
+  name = "{{ resource.props.get('name', resource.slug) }}"
+{% if resource.props.get('displayName') %}
+  display_name = "{{ resource.props.get('displayName') }}"
+{% endif %}
+
+  tags = {
+    Name      = "{{ resource.props.get('name', resource.slug) }}"
+    ManagedBy = "CloudForge"
+  }
+}

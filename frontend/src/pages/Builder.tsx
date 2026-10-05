@@ -1,9 +1,9 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ReactFlow,
+  ConnectionMode,
   Background,
-  Controls,
   MiniMap,
   addEdge,
   useNodesState,
@@ -16,9 +16,9 @@ import {
   type Edge,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
+import dagre from 'dagre';
 
 import {
-  Save,
   CheckSquare,
   Code2,
   Trash2,
@@ -26,21 +26,31 @@ import {
   Cloud,
   Loader2,
   ArrowLeft,
+  LayoutTemplate,
 } from 'lucide-react';
 
 import { ResourceNodeComponent } from '../features/builder/ResourceNode';
+import { GroupNodeComponent, CONTAINER_TYPES } from '../features/builder/GroupNode';
 import { BuilderSidebar, type SidebarItem } from '../features/builder/BuilderSidebar';
+import { BuilderToolbar } from '../features/builder/BuilderToolbar';
+import { Breadcrumb } from '../features/builder/Breadcrumb';
 import { ConfigPanel } from '../features/builder/ConfigPanel';
 import { ValidationPanel } from '../features/builder/ValidationPanel';
+import { TemplateModal } from '../features/builder/TemplateModal';
 import { architectureApi, projectsApi } from '../services/api';
 import type { ValidationResult, Project } from '../types';
 import toast from 'react-hot-toast';
 
-const nodeTypes = { resourceNode: ResourceNodeComponent };
+/* ── Node types ─────────────────────────────────────────────────────── */
+
+const nodeTypes = {
+  resourceNode: ResourceNodeComponent,
+  groupNode: GroupNodeComponent,
+};
 
 const defaultEdgeOptions = {
-  style: { stroke: '#4b5563', strokeWidth: 2 },
-  markerEnd: { type: MarkerType.ArrowClosed, color: '#4b5563' },
+  style: { stroke: '#3b82f6', strokeWidth: 2 },
+  markerEnd: { type: MarkerType.ArrowClosed, color: '#3b82f6' },
 };
 
 let nodeCounter = 0;
@@ -50,7 +60,135 @@ type CloudNode = Node<{
   resourceType: string;
   provider: string;
   properties: Record<string, any>;
+  collapsed?: boolean;
+  childCount?: number;
 }>;
+
+/** Walk up the parent chain to build the focus breadcrumb path. */
+function buildFocusPath(
+  nodes: CloudNode[],
+  focusedId: string | null
+): CloudNode[] {
+  if (!focusedId) return [];
+  const nodeMap = new Map(nodes.map((n) => [n.id, n]));
+  const path: CloudNode[] = [];
+  let current = nodeMap.get(focusedId);
+  while (current && CONTAINER_TYPES.has(current.data.resourceType)) {
+    path.unshift(current);
+    current = current.parentId ? nodeMap.get(current.parentId) : undefined;
+  }
+  return path;
+}
+
+/** Compute visible nodes: hide descendants of collapsed groups. */
+function computeVisibleNodeIds(nodes: CloudNode[]): Set<string> {
+  const visible = new Set<string>();
+  const nodeMap = new Map(nodes.map((n) => [n.id, n]));
+
+  for (const node of nodes) {
+    let hide = false;
+    let current: CloudNode | undefined = node;
+    while (current?.parentId) {
+      const parent = nodeMap.get(current.parentId);
+      if (parent?.data?.collapsed) {
+        hide = true;
+        break;
+      }
+      current = parent;
+    }
+    if (!hide) visible.add(node.id);
+  }
+  return visible;
+}
+
+/** Count descendant non-container resources inside a group. */
+function countDescendants(nodes: CloudNode[], groupId: string): number {
+  const children = nodes.filter((n) => n.parentId === groupId);
+  let count = 0;
+  for (const child of children) {
+    if (CONTAINER_TYPES.has(child.data.resourceType)) {
+      count += countDescendants(nodes, child.id);
+    } else {
+      count++;
+    }
+  }
+  return count;
+}
+
+/** Auto-layout using dagre, respecting parent-child containment. */
+function applyAutoLayout(nodes: CloudNode[], edges: Edge[]): CloudNode[] {
+  const g = new dagre.graphlib.Graph();
+  g.setDefaultEdgeLabel(() => ({}));
+  g.setGraph({ rankdir: 'TB', nodesep: 60, ranksep: 70, marginx: 30, marginy: 30 });
+
+  const containers = nodes.filter((n) => CONTAINER_TYPES.has(n.data.resourceType));
+  const leaves = nodes.filter((n) => !CONTAINER_TYPES.has(n.data.resourceType));
+
+  for (const c of containers) g.setNode(c.id, { width: 360, height: 220 });
+  for (const l of leaves) g.setNode(l.id, { width: 200, height: 80 });
+
+  const nodeMap = new Map(nodes.map((n) => [n.id, n]));
+  for (const e of edges) {
+    if (!e.source || !e.target) continue;
+    const src = nodeMap.get(e.source);
+    const tgt = nodeMap.get(e.target);
+    // Skip containment edges (parent<->child)
+    if (src?.parentId === e.target || tgt?.parentId === e.source) continue;
+    g.setEdge(e.source, e.target);
+  }
+
+  dagre.layout(g);
+
+  return nodes.map((node) => {
+    const pos = g.node(node.id);
+    if (!pos) return node;
+
+    if (node.parentId) {
+      const parent = nodeMap.get(node.parentId);
+      if (parent) {
+        const parentPos = g.node(parent.id);
+        if (parentPos) {
+          return {
+            ...node,
+            position: { x: pos.x - parentPos.x, y: pos.y - parentPos.y },
+          };
+        }
+      }
+    }
+    return { ...node, position: { x: pos.x - 100, y: pos.y - 40 } };
+  });
+}
+
+function isPositionInsideNode(
+  point: { x: number; y: number },
+  node: CloudNode
+): boolean {
+  const w = CONTAINER_TYPES.has(node.data.resourceType) ? 360 : 190;
+  const h = node.data.resourceType === 'subnet' || node.data.resourceType === 'vpc' ? 220 : 80;
+  return (
+    point.x >= node.position.x &&
+    point.x <= node.position.x + w &&
+    point.y >= node.position.y &&
+    point.y <= node.position.y + h
+  );
+}
+
+/* ── MiniMap colors ─────────────────────────────────────────────────── */
+
+const RESOURCE_COLORS: Record<string, string> = {
+  vpc: '#3b82f6', subnet: '#06b6d4', ec2: '#f97316',
+  s3: '#22c55e', rds: '#a855f7', security_group: '#ef4444',
+  load_balancer: '#eab308', internet_gateway: '#0ea5e9',
+  route_table: '#6366f1', nat_gateway: '#f59e0b', lambda: '#f43f5e',
+  dynamodb: '#14b8a6', iam_role: '#84cc16', cloudfront: '#8b5cf6',
+  api_gateway: '#d946ef', route53_zone: '#10b981', route53_record: '#34d399',
+  elastic_ip: '#a8a29e', ebs_volume: '#d6d3d1', ecr_repository: '#60a5fa',
+  ecs_cluster: '#22d3ee', efs: '#4ade80', elasticache: '#f87171',
+  aurora: '#818cf8', redshift: '#ec4899', kinesis_stream: '#38bdf8',
+  sqs: '#fb923c', sns: '#fbbf24', step_function: '#c084fc',
+  secretsmanager: '#fca5a5', cloudwatch_alarm: '#facc15',
+  cloudwatch_log_group: '#94a3b8', kms_key: '#2dd4bf',
+};
 
 export default function Builder() {
   const { id: projectId } = useParams<{ id: string }>();
@@ -66,8 +204,23 @@ export default function Builder() {
   const [loadingProject, setLoadingProject] = useState(true);
   const [saving, setSaving] = useState(false);
   const [validating, setValidating] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null);
+  const [selectedRegion, setSelectedRegion] = useState("us-east-1");
+
+  const AWS_REGIONS = [
+    { label: "US East (N. Virginia)", value: "us-east-1" },
+    { label: "US East (Ohio)", value: "us-east-2" },
+    { label: "Asia Pacific (Tokyo)", value: "ap-northeast-1" },
+    { label: "Europe (Ireland)", value: "eu-west-1" },
+    { label: "US West (Oregon)", value: "us-west-2" },
+  ]
 
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
+
+  // ── Load project ────────────────────────────────────────────────────
 
   useEffect(() => {
     if (!projectId) return;
@@ -79,8 +232,18 @@ export default function Builder() {
         ]);
         setProject(projRes.data);
         if (archRes.data.nodes && archRes.data.nodes.length > 0) {
-          setNodes(archRes.data.nodes as CloudNode[]);
+          const loadedNodes = (archRes.data.nodes as CloudNode[]).map((n) => ({
+            ...n,
+            type: CONTAINER_TYPES.has(n.data?.resourceType)
+              ? 'groupNode'
+              : 'resourceNode',
+            data: { ...n.data, collapsed: false },
+          }));
+          setNodes(loadedNodes);
           setEdges(archRes.data.edges || []);
+          if (archRes.data.aws_region) setSelectedRegion(archRes.data.aws_region);
+        } else {
+          setShowTemplates(true);
         }
       } catch (err: any) {
         if (err.response?.status !== 404) {
@@ -89,6 +252,7 @@ export default function Builder() {
         try {
           const projRes = await projectsApi.get(projectId!);
           setProject(projRes.data);
+          setShowTemplates(true);
         } catch {
           toast.error('Project not found');
           navigate('/dashboard');
@@ -98,23 +262,241 @@ export default function Builder() {
       }
     };
     load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
+
+  // ── Listen for collapse toggle events from GroupNode ────────────────
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.nodeId) toggleCollapse(detail.nodeId);
+    };
+    window.addEventListener('group:toggle', handler);
+    return () => window.removeEventListener('group:toggle', handler);
+  });
+
+  // ── Collapse / expand logic ─────────────────────────────────────────
+
+  const toggleCollapse = useCallback(
+    (nodeId: string) => {
+      setNodes((nds) =>
+        nds.map((n) => {
+          if (n.id !== nodeId) return n;
+          const newCollapsed = !n.data.collapsed;
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              collapsed: newCollapsed,
+              childCount: newCollapsed ? countDescendants(nds, n.id) : 0,
+            },
+          } as CloudNode;
+        })
+      );
+    },
+    [setNodes]
+  );
+
+  const expandAll = useCallback(() => {
+    setNodes(
+      (nds) =>
+        nds.map((n) => ({
+          ...n,
+          data: { ...n.data, collapsed: false },
+        })) as CloudNode[]
+    );
+  }, [setNodes]);
+
+  const collapseAll = useCallback(() => {
+    setNodes(
+      (nds) =>
+        nds.map((n) => {
+          if (!CONTAINER_TYPES.has(n.data.resourceType)) return n;
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              collapsed: true,
+              childCount: countDescendants(nds, n.id),
+            },
+          } as CloudNode;
+        })
+    );
+  }, [setNodes]);
+
+  // ── Visible nodes (respect collapsed state) ─────────────────────────
+
+  const visibleNodeIds = useMemo(() => computeVisibleNodeIds(nodes), [nodes]);
+  const visibleNodes = useMemo(
+    () => nodes.filter((n) => visibleNodeIds.has(n.id)),
+    [nodes, visibleNodeIds]
+  );
+
+  // ── Search + focus ──────────────────────────────────────────────────
+
+  const handleSearch = useCallback(
+    (query: string) => {
+      setSearchQuery(query);
+      if (!query.trim()) {
+        setHighlightedNodeId(null);
+        return;
+      }
+      const q = query.toLowerCase();
+      const match = nodes.find((n) => {
+        const props = (n.data.properties as Record<string, any>) || {};
+        const name =
+          props.name || props.bucketName || props.identifier || props.functionName || '';
+        const type = (n.data.resourceType || '').toLowerCase();
+        return (
+          String(name).toLowerCase().includes(q) ||
+          type.includes(q) ||
+          n.id.toLowerCase().includes(q)
+        );
+      });
+
+      if (match) {
+        // Auto-expand collapsed ancestors so the node is visible
+        setNodes((nds) => {
+          const nodeMap = new Map(nds.map((n) => [n.id, n]));
+          const toExpand: string[] = [];
+          let current = nds.find((n) => n.id === match.id);
+          while (current?.parentId) {
+            const parent = nodeMap.get(current.parentId);
+            if (parent?.data.collapsed) toExpand.push(parent.id);
+            current = parent;
+          }
+          if (toExpand.length === 0) return nds;
+          return nds.map((n) =>
+            toExpand.includes(n.id)
+              ? ({ ...n, data: { ...n.data, collapsed: false } } as CloudNode)
+              : n
+          );
+        });
+        // Clear any prior focus so we see the whole canvas, then fit to node
+        setFocusedNodeId(null);
+        setHighlightedNodeId(match.id);
+        setTimeout(() => {
+          rfInstance?.fitView({
+            nodes: [{ id: match.id }],
+            padding: 0.4,
+            duration: 300,
+          });
+        }, 80);
+      } else {
+        setHighlightedNodeId(null);
+        toast(`No resource matching "${query}"`, { icon: '🔍' });
+      }
+    },
+    [nodes, rfInstance, setNodes]
+  );
+
+  const handleClearSearch = useCallback(() => {
+    setSearchQuery('');
+    setHighlightedNodeId(null);
+  }, []);
+
+  // ── Focus / drill-down ──────────────────────────────────────────────
+
+  const focusPath = useMemo(
+    () => buildFocusPath(nodes, focusedNodeId),
+    [nodes, focusedNodeId]
+  );
+
+  const handleBreadcrumbNavigate = useCallback(
+    (nodeId: string | null) => {
+      setFocusedNodeId(nodeId);
+      setTimeout(() => {
+        if (nodeId) {
+          rfInstance?.fitView({
+            nodes: [{ id: nodeId }],
+            padding: 0.35,
+            duration: 300,
+          });
+        } else {
+          rfInstance?.fitView({ padding: 0.2, duration: 300 });
+        }
+      }, 80);
+    },
+    [rfInstance]
+  );
+
+  const handleNodeDoubleClick = useCallback(
+    (_: React.MouseEvent, node: CloudNode) => {
+      if (CONTAINER_TYPES.has(node.data.resourceType)) {
+        handleBreadcrumbNavigate(node.id);
+      }
+    },
+    [handleBreadcrumbNavigate]
+  );
+
+  // ── Auto layout ─────────────────────────────────────────────────────
+
+  const handleAutoLayout = useCallback(() => {
+    setNodes((nds) => applyAutoLayout(nds, edges));
+    setTimeout(() => rfInstance?.fitView({ padding: 0.2, duration: 400 }), 120);
+    toast.success('Layout applied');
+  }, [edges, rfInstance, setNodes]);
+
+  // ── Templates ───────────────────────────────────────────────────────
+
+  const handleTemplateSelect = useCallback(
+    (templateNodes: Node[], templateEdges: Edge[]) => {
+      const newNodes = (templateNodes as CloudNode[]).map((n) => ({
+        ...n,
+        type: CONTAINER_TYPES.has(n.data?.resourceType)
+          ? 'groupNode'
+          : 'resourceNode',
+        data: { ...n.data, collapsed: false },
+      }));
+      setNodes(newNodes);
+      setEdges(templateEdges);
+      setSelectedNode(null);
+      setValidationResult(null);
+      setHighlightedNodeId(null);
+      setTimeout(() => {
+        rfInstance?.fitView({ padding: 0.2, duration: 400 });
+      }, 80);
+      toast.success('Template applied');
+    },
+    [rfInstance, setNodes, setEdges]
+  );
+
+  // ── Connections ─────────────────────────────────────────────────────
 
   const onConnect = useCallback(
     (connection: Connection) => {
-      setEdges((eds) =>
-        addEdge(
+      if (!connection.source || !connection.target || connection.source === connection.target) {
+        toast.error('Choose two different resources to connect.');
+        return;
+      }
+
+      setEdges((eds) => {
+        const alreadyConnected = eds.some(
+          (edge) =>
+            (edge.source === connection.source && edge.target === connection.target) ||
+            (edge.source === connection.target && edge.target === connection.source)
+        );
+        if (alreadyConnected) {
+          toast.error('Those resources are already connected.');
+          return eds;
+        }
+
+        toast.success('Resources connected');
+        return addEdge(
           {
             ...connection,
             style: { stroke: '#3b82f6', strokeWidth: 2 },
             markerEnd: { type: MarkerType.ArrowClosed, color: '#3b82f6' },
           },
           eds
-        )
-      );
+        );
+      });
     },
     [setEdges]
   );
+
+  // ── Drag & drop (with drop-into-container) ──────────────────────────
 
   const onDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault();
@@ -124,35 +506,57 @@ export default function Builder() {
   const onDrop = useCallback(
     (event: React.DragEvent) => {
       event.preventDefault();
-      if (!rfInstance || !reactFlowWrapper.current) return;
+      if (!rfInstance) return;
 
       const itemJson = event.dataTransfer.getData('application/cloudforge-node');
       if (!itemJson) return;
 
       const item: SidebarItem = JSON.parse(itemJson);
-      const bounds = reactFlowWrapper.current.getBoundingClientRect();
 
       const position = rfInstance.screenToFlowPosition({
-        x: event.clientX - bounds.left,
-        y: event.clientY - bounds.top,
+        x: event.clientX,
+        y: event.clientY,
       });
 
       nodeCounter++;
       const id = `${item.type}-${Date.now()}-${nodeCounter}`;
 
-      const newNode: CloudNode = {
-        id,
-        type: 'resourceNode',
-        position,
-        data: {
-          label: item.label,
-          resourceType: item.type,
-          provider: 'aws',
-          properties: { ...item.defaultProperties },
-        },
-      };
+      // Determine if the drop landed inside a container (group) node.
+      let parentId: string | undefined;
+      let childPosition = position;
 
-      setNodes((nds) => [...nds, newNode]);
+      setNodes((nds) => {
+        const containers = nds.filter((n) => CONTAINER_TYPES.has(n.data.resourceType));
+        // Pick the innermost container under the drop point (nested last).
+        const isInside = containers
+          .filter((c) => isPositionInsideNode(position, c))
+          .sort((a, b) => (b.parentId ? 1 : 0) - (a.parentId ? 1 : 0));
+
+        if (isInside.length > 0) {
+          const target = isInside[0];
+          parentId = target.id;
+          // Position relative to parent for React Flow containment.
+          childPosition = {
+            x: position.x - target.position.x,
+            y: position.y - target.position.y,
+          };
+        }
+
+        const newNode: CloudNode = {
+          id,
+          ...(parentId ? { parentId } : {}),
+          type: 'resourceNode',
+          position: childPosition,
+          data: {
+            label: item.label,
+            resourceType: item.type,
+            provider: 'aws',
+            properties: { ...item.defaultProperties },
+          },
+        };
+
+        return [...nds, newNode];
+      });
     },
     [rfInstance, setNodes]
   );
@@ -162,6 +566,8 @@ export default function Builder() {
     event.dataTransfer.effectAllowed = 'move';
   };
 
+  // ── Selection / deletion ────────────────────────────────────────────
+
   const handleNodeClick = useCallback((_: React.MouseEvent, node: CloudNode) => {
     setSelectedNode(node);
   }, []);
@@ -169,6 +575,21 @@ export default function Builder() {
   const handlePaneClick = useCallback(() => {
     setSelectedNode(null);
   }, []);
+
+  const handleNodesDelete = useCallback(
+    (deleted: CloudNode[]) => {
+      setSelectedNode((prev) =>
+        prev && deleted.some((n) => n.id === prev.id) ? null : prev
+      );
+      const deletedIds = new Set(deleted.map((d) => d.id));
+      setEdges((eds) =>
+        eds.filter(
+          (e) => !deletedIds.has(e.source) && !deletedIds.has(e.target)
+        )
+      );
+    },
+    [setEdges]
+  );
 
   const handlePropertyChange = useCallback(
     (nodeId: string, newProperties: Record<string, any>) => {
@@ -188,11 +609,13 @@ export default function Builder() {
     [setNodes]
   );
 
-  const doSave = async () => {
+  // ── Actions ─────────────────────────────────────────────────────────
+
+  const handleSave = async () => {
     if (!projectId) return;
     setSaving(true);
     try {
-      await architectureApi.save(projectId, { nodes, edges });
+      await architectureApi.save(projectId, { nodes, edges, aws_region: selectedRegion });
       toast.success('Architecture saved successfully!');
     } catch (err: any) {
       toast.error(err.response?.data?.detail || 'Failed to save architecture');
@@ -201,24 +624,11 @@ export default function Builder() {
     }
   };
 
-  const handleSave = async () => {
-    await doSave();
-    setValidationResult(null);
-  };
-
   const handleValidate = async () => {
     if (!projectId) return;
-    setSaving(true);
-    try {
-      await architectureApi.save(projectId, { nodes, edges });
-    } catch {
-      /* continue */
-    } finally {
-      setSaving(false);
-    }
-
     setValidating(true);
     try {
+      await architectureApi.save(projectId, { nodes, edges, aws_region: selectedRegion });
       const res = await architectureApi.validate(projectId);
       setValidationResult(res.data);
       if (res.data.valid) {
@@ -238,9 +648,10 @@ export default function Builder() {
     if (!projectId) return;
     setSaving(true);
     try {
-      await architectureApi.save(projectId, { nodes, edges });
-    } catch {
-      /* continue */
+      await architectureApi.save(projectId, { nodes, edges, aws_region: selectedRegion });
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Failed to save architecture');
+      return;
     } finally {
       setSaving(false);
     }
@@ -253,12 +664,17 @@ export default function Builder() {
     setEdges([]);
     setSelectedNode(null);
     setValidationResult(null);
+    setShowTemplates(true);
   };
 
   const handleDeleteSelected = () => {
     if (selectedNode) {
       setNodes((nds) => nds.filter((n) => n.id !== selectedNode.id));
-      setEdges((eds) => eds.filter((e) => e.source !== selectedNode.id && e.target !== selectedNode.id));
+      setEdges((eds) =>
+        eds.filter(
+          (e) => e.source !== selectedNode.id && e.target !== selectedNode.id
+        )
+      );
       setSelectedNode(null);
     }
   };
@@ -276,7 +692,7 @@ export default function Builder() {
 
   return (
     <div className="flex flex-col h-screen bg-dark-950 overflow-hidden">
-      {/* Toolbar */}
+      {/* Top header bar */}
       <header className="flex items-center gap-3 px-4 py-2.5 bg-dark-900 border-b border-dark-800 flex-shrink-0">
         <button
           onClick={() => navigate('/dashboard')}
@@ -291,20 +707,36 @@ export default function Builder() {
             <Cloud className="w-3 h-3 text-white" />
           </div>
           <div>
-            <div className="text-sm font-semibold text-white leading-none">{project?.name || 'Builder'}</div>
-            <div className="text-[10px] text-dark-500 capitalize">{project?.provider} · Visual Builder</div>
+            <div className="text-sm font-semibold text-white leading-none">
+              {project?.name || 'Builder'}
+            </div>
+            <select
+              value={selectedRegion}
+              onChange={(e) => setSelectedRegion(e.target.value)}
+              className="bg-dark-800 border border-dark-700 rounded-lg px-2 py-1 text-xs text-dark-200 focus:outline-none focus:border-primary-500 mt-1"
+              title="AWS Region"
+            >
+              {AWS_REGIONS.map((r) => (
+                <option key={r.value} value={r.value} style={{ background: '#1f2937' }}>
+                  {r.label}
+                </option>
+              ))}
+            </select>
+            <div className="text-[10px] text-dark-500 capitalize">
+              {project?.provider} · Visual Builder
+            </div>
           </div>
-        </div>
-
-        <div className="text-[10px] text-dark-600 hidden lg:block">
-          {nodes.length} resource{nodes.length !== 1 ? 's' : ''} · {edges.length} connection{edges.length !== 1 ? 's' : ''}
         </div>
 
         <div className="flex-1" />
 
         <div className="flex items-center gap-2">
           {selectedNode && (
-            <button onClick={handleDeleteSelected} className="btn-danger text-xs" title="Delete selected">
+            <button
+              onClick={handleDeleteSelected}
+              className="btn-danger text-xs"
+              title="Delete selected"
+            >
               <Trash2 className="w-3.5 h-3.5" />
               Delete
             </button>
@@ -313,20 +745,57 @@ export default function Builder() {
             <RotateCcw className="w-3.5 h-3.5" />
             Clear
           </button>
-          <button onClick={handleSave} disabled={saving} className="btn-secondary text-xs">
-            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-            {saving ? 'Saving...' : 'Save'}
+          <button
+            onClick={() => setShowTemplates(true)}
+            className="btn-ghost text-xs"
+            title="Architecture templates"
+          >
+            <LayoutTemplate className="w-3.5 h-3.5" />
+            Templates
           </button>
-          <button onClick={handleValidate} disabled={validating || saving} className="btn-secondary text-xs">
-            {validating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckSquare className="w-3.5 h-3.5" />}
+          <button
+            onClick={handleValidate}
+            disabled={validating || saving}
+            className="btn-secondary text-xs"
+          >
+            {validating ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <CheckSquare className="w-3.5 h-3.5" />
+            )}
             {validating ? 'Validating...' : 'Validate'}
           </button>
-          <button onClick={handleGenerateTerraform} disabled={saving} className="btn-primary text-xs">
+          <button
+            onClick={handleGenerateTerraform}
+            disabled={saving}
+            className="btn-primary text-xs"
+          >
             <Code2 className="w-3.5 h-3.5" />
             Generate Terraform
           </button>
         </div>
       </header>
+
+      {/* Builder toolbar (search, zoom, layout, collapse, save) */}
+      <BuilderToolbar
+        rfInstance={rfInstance}
+        saving={saving}
+        resourceCount={nodes.length}
+        edgeCount={edges.length}
+        onSave={handleSave}
+        onAutoLayout={handleAutoLayout}
+        onExpandAll={expandAll}
+        onCollapseAll={collapseAll}
+        onSearch={handleSearch}
+        onClearSearch={handleClearSearch}
+        searchQuery={searchQuery}
+      />
+
+      {/* Breadcrumb (drill-down) */}
+      <Breadcrumb
+        focusPath={focusPath}
+        onNavigate={handleBreadcrumbNavigate}
+      />
 
       {/* Builder */}
       <div className="flex flex-1 overflow-hidden">
@@ -335,44 +804,53 @@ export default function Builder() {
         <div className="flex-1 flex flex-col overflow-hidden">
           <div ref={reactFlowWrapper} className="flex-1">
             <ReactFlow<CloudNode, Edge>
-              nodes={nodes}
+              nodes={visibleNodes}
               edges={edges}
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
+              onNodesDelete={handleNodesDelete}
               onConnect={onConnect}
+              connectionMode={ConnectionMode.Loose}
               onDrop={onDrop}
               onDragOver={onDragOver}
               onInit={setRfInstance}
               onNodeClick={handleNodeClick}
+              onNodeDoubleClick={handleNodeDoubleClick}
               onPaneClick={handlePaneClick}
               nodeTypes={nodeTypes}
               defaultEdgeOptions={defaultEdgeOptions}
               fitView
               snapToGrid
               snapGrid={[16, 16]}
-              minZoom={0.3}
-              maxZoom={2}
+              minZoom={0.2}
+              maxZoom={2.5}
             >
-              <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#1f2937" />
-              <Controls />
+              <Background
+                variant={BackgroundVariant.Dots}
+                gap={20}
+                size={1}
+                color="#1f2937"
+              />
               <MiniMap
                 nodeColor={(n) => {
                   const t = n.data?.resourceType as string;
-                  const c: Record<string, string> = {
-                    vpc: '#3b82f6', subnet: '#06b6d4', ec2: '#f97316',
-                    s3: '#22c55e', rds: '#a855f7', security_group: '#ef4444',
-                    load_balancer: '#eab308',
-                  };
-                  return c[t] || '#6b7280';
+                  if (n.id === highlightedNodeId) return '#fbbf24';
+                  return RESOURCE_COLORS[t] || '#6b7280';
                 }}
+                nodeStrokeWidth={2}
                 maskColor="rgba(0,0,0,0.6)"
-                style={{ background: '#111827' }}
+                style={{ background: '#111827', bottom: 16, right: 16 }}
+                pannable
+                zoomable
               />
             </ReactFlow>
           </div>
 
           {validationResult && (
-            <ValidationPanel result={validationResult} onClose={() => setValidationResult(null)} />
+            <ValidationPanel
+              result={validationResult}
+              onClose={() => setValidationResult(null)}
+            />
           )}
         </div>
 
@@ -384,6 +862,13 @@ export default function Builder() {
           />
         )}
       </div>
+
+      {showTemplates && (
+        <TemplateModal
+          onSelect={handleTemplateSelect}
+          onClose={() => setShowTemplates(false)}
+        />
+      )}
     </div>
   );
 }

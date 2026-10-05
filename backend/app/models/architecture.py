@@ -12,6 +12,7 @@ class Architecture(Base):
     project_id = Column(String, ForeignKey("projects.id"), nullable=False, unique=True)
     nodes = Column(JSONB, nullable=False, default=list)
     edges = Column(JSONB, nullable=False, default=list)
+    aws_region = Column(String, nullable=False, default="us-east-1")
     version = Column(Integer, nullable=False, default=1)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())

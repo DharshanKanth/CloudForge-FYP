@@ -1,0 +1,41 @@
+# Step Functions machines need an execution role; emit a dedicated one so the
+# generated config is valid on its own.
+resource "aws_iam_role" "{{ resource.slug }}_execution" {
+  name = "{{ resource.slug }}-sfn-exec"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Service = "states.amazonaws.com"
+      }
+      Action = "sts:AssumeRole"
+    }]
+  })
+
+  tags = {
+    Name      = "{{ resource.slug }}-sfn-exec"
+    ManagedBy = "CloudForge"
+  }
+}
+
+resource "aws_sfn_state_machine" "{{ resource.slug }}" {
+  name     = "{{ resource.props.get('name', resource.slug) }}"
+  role_arn = aws_iam_role.{{ resource.slug }}_execution.arn
+
+  definition = jsonencode({
+    StartAt = "Start"
+    States = {
+      Start = {
+        Type = "Pass"
+        End  = true
+      }
+    }
+  })
+
+  tags = {
+    Name      = "{{ resource.props.get('name', resource.slug) }}"
+    ManagedBy = "CloudForge"
+  }
+}
