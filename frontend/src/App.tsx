@@ -1,19 +1,30 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from './hooks/useAuth';
 import { ProtectedRoute } from './components/ProtectedRoute';
-import Login from './pages/Login';
-import Dashboard from './pages/Dashboard';
-import NewProject from './pages/NewProject';
-import Builder from './pages/Builder';
-import TerraformViewer from './pages/TerraformViewer';
-import Settings from './pages/Settings';
+
+// Route-level code splitting: each page (and its heavy deps such as Monaco or
+// dagre) loads on demand instead of in the initial bundle.
+const Login = lazy(() => import('./pages/Login'));
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const NewProject = lazy(() => import('./pages/NewProject'));
+const Builder = lazy(() => import('./pages/Builder'));
+const TerraformViewer = lazy(() => import('./pages/TerraformViewer'));
+const Settings = lazy(() => import('./pages/Settings'));
 
 function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
-        <Routes>
+        <Suspense
+          fallback={
+            <div className="h-screen flex items-center justify-center bg-dark-950 text-dark-400 text-sm">
+              Loading…
+            </div>
+          }
+        >
+          <Routes>
           <Route path="/login" element={<Login />} />
           <Route
             path="/dashboard"
@@ -58,6 +69,7 @@ function App() {
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
+        </Suspense>
       </BrowserRouter>
       <Toaster
         position="bottom-right"
