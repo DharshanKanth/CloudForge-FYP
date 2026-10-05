@@ -62,6 +62,7 @@ type CloudNode = Node<{
   properties: Record<string, any>;
   collapsed?: boolean;
   childCount?: number;
+  detached?: boolean;
 }>;
 
 /** Walk up the parent chain to build the focus breadcrumb path. */
@@ -230,6 +231,7 @@ function nestNode(nodes: CloudNode[], childId: string, parentId: string): CloudN
         ...n,
         parentId,
         position: { x: absChild.x - absParent.x, y: absChild.y - absParent.y },
+        data: { ...n.data, detached: false },
       } as CloudNode;
     }
     // Expand the container so the newly nested resource is actually visible.
@@ -283,9 +285,60 @@ function nestFromEdges(
   let result = nodes;
   for (const edge of edges) {
     const pair = containmentPair(result, edge);
-    if (pair) result = nestNode(result, pair.childId, pair.parentId);
+    if (!pair) continue;
+    const child = result.find((n) => n.id === pair.childId);
+    // Respect a node the user deliberately dragged out of its container.
+    if (child?.data.detached) continue;
+    result = nestNode(result, pair.childId, pair.parentId);
   }
   return result;
+}
+
+/** Every descendant node id of `id` (used to prevent nesting cycles). */
+function descendantsOf(nodes: CloudNode[], id: string): Set<string> {
+  const result = new Set<string>();
+  const stack = [id];
+  while (stack.length) {
+    const current = stack.pop() as string;
+    for (const n of nodes) {
+      if (n.parentId === current && !result.has(n.id)) {
+        result.add(n.id);
+        stack.push(n.id);
+      }
+    }
+  }
+  return result;
+}
+
+function nodeDepth(node: CloudNode, byId: Map<string, CloudNode>): number {
+  let depth = 0;
+  let parentId = node.parentId;
+  const seen = new Set<string>();
+  while (parentId && !seen.has(parentId)) {
+    seen.add(parentId);
+    depth += 1;
+    parentId = byId.get(parentId)?.parentId;
+  }
+  return depth;
+}
+
+/** The innermost container whose bounds contain `node`'s centre, or null. */
+function findContainerFor(node: CloudNode, nodes: CloudNode[]): string | null {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const abs = absolutePosition(node, byId);
+  const center = { x: abs.x + 95, y: abs.y + 40 };
+  const excluded = descendantsOf(nodes, node.id);
+  excluded.add(node.id);
+
+  const inside = nodes.filter((c) => {
+    if (!CONTAINER_TYPES.has(c.data.resourceType) || excluded.has(c.id)) return false;
+    const cb = absolutePosition(c, byId);
+    const w = 360;
+    const h = 220;
+    return center.x >= cb.x && center.x <= cb.x + w && center.y >= cb.y && center.y <= cb.y + h;
+  });
+  inside.sort((a, b) => nodeDepth(b, byId) - nodeDepth(a, byId));
+  return inside[0]?.id ?? null;
 }
 
 /* ── MiniMap colors ─────────────────────────────────────────────────── */
@@ -774,13 +827,55 @@ export default function Builder() {
         prev && deleted.some((n) => n.id === prev.id) ? null : prev
       );
       const deletedIds = new Set(deleted.map((d) => d.id));
+
+      // Deleting a container must not strand its children: float any surviving
+      // descendant up to the top level, keeping its on-canvas position.
+      setNodes((nds) => {
+        let result = nds;
+        for (const gone of deleted) {
+          if (!CONTAINER_TYPES.has(gone.data.resourceType)) continue;
+          for (const child of nds) {
+            if (child.parentId === gone.id && !deletedIds.has(child.id)) {
+              result = detachNode(result, child.id);
+            }
+          }
+        }
+        return result;
+      });
+
       setEdges((eds) =>
         eds.filter(
           (e) => !deletedIds.has(e.source) && !deletedIds.has(e.target)
         )
       );
     },
-    [setEdges]
+    [setEdges, setNodes]
+  );
+
+  // Dragging a node into a container nests it; dragging it out detaches it and
+  // marks it so edge-based re-nesting on the next load leaves it alone.
+  const handleNodeDragStop = useCallback(
+    (_: MouseEvent | TouchEvent, dragged: CloudNode) => {
+      const merged = nodes.map((n) =>
+        n.id === dragged.id ? { ...n, position: dragged.position } : n
+      );
+      const current = merged.find((n) => n.id === dragged.id);
+      if (!current) return;
+      const target = findContainerFor(current, merged);
+      const currentParent = current.parentId ?? null;
+      if (target === currentParent) return;
+
+      setNodes((nds) => {
+        if (target) return nestNode(nds, current.id, target);
+        const detached = detachNode(nds, current.id);
+        return detached.map((n) =>
+          n.id === current.id
+            ? ({ ...n, data: { ...n.data, detached: true } } as CloudNode)
+            : n
+        );
+      });
+    },
+    [nodes, setNodes]
   );
 
   // Deleting a containment edge pulls its child back out of the big node
@@ -1027,6 +1122,7 @@ export default function Builder() {
               onEdgesChange={onEdgesChange}
               onEdgesDelete={handleEdgesDelete}
               onNodesDelete={handleNodesDelete}
+              onNodeDragStop={handleNodeDragStop}
               onConnect={onConnect}
               connectionMode={ConnectionMode.Loose}
               onDrop={onDrop}
