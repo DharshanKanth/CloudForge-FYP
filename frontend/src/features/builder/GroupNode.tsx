@@ -60,12 +60,19 @@ export const GroupNodeComponent = memo(
         <Handle type="target" position={Position.Top} id="top" style={{ top: -5 }} />
         <Handle type="target" position={Position.Left} id="left" style={{ left: -5 }} />
 
-        {/* Header bar */}
+        {/* Header bar — a plain click selects the node (opening the config
+            panel); only the chevron toggles collapse/expand. Stopping
+            propagation on the whole header would swallow React Flow's
+            onNodeClick and make the resource unconfigurable. */}
         <div
-          className={`${style.header} px-3 py-2 rounded-t-xl flex items-center gap-2 cursor-pointer select-none`}
-          onClick={handleToggle}
+          className={`${style.header} px-3 py-2 rounded-t-xl flex items-center gap-2 select-none`}
         >
-          <button className="text-dark-400 hover:text-white transition-colors">
+          <button
+            type="button"
+            className="text-dark-400 hover:text-white transition-colors"
+            onClick={handleToggle}
+            title={collapsed ? 'Expand' : 'Collapse'}
+          >
             {collapsed
               ? <ChevronRight className="w-4 h-4" />
               : <ChevronDown className="w-4 h-4" />}

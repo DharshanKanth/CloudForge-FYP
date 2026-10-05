@@ -582,7 +582,10 @@ export default function Builder() {
         const newNode: CloudNode = {
           id,
           ...(parentId ? { parentId } : {}),
-          type: 'resourceNode',
+          // Container types (VPC/Subnet) must render as group nodes immediately;
+          // otherwise a freshly dropped VPC is a plain resource node until the
+          // page reloads and re-types it, giving two different behaviours.
+          type: CONTAINER_TYPES.has(item.type) ? 'groupNode' : 'resourceNode',
           position: childPosition,
           data: {
             label: item.label,
