@@ -3,15 +3,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import os
 
-from app.database import engine, Base
+from app.database import run_migrations
 from app.routers import auth, projects, architecture, terraform, infrastructure
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Create tables on startup
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # Schema is owned by Alembic (app/database.run_migrations). It stamps
+    # pre-existing create_all databases before upgrading, so data is preserved.
+    run_migrations()
     yield
 
 
