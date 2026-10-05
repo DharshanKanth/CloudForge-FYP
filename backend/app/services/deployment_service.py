@@ -102,6 +102,9 @@ def _run(command: List[str], cwd: Path) -> subprocess.CompletedProcess[str]:
 def plan(project_id: str, files: List[TerraformFile]) -> Dict:
     with _project_lock(project_id):
         workspace = _write_files(project_id, files)
+        # Canonicalize formatting before init/plan so generated HCL is always
+        # `terraform fmt`-clean (cosmetic, but keeps plan diffs minimal).
+        _run(["terraform", "fmt", "-no-color"], workspace)
         init = _run(["terraform", "init", "-input=false", "-no-color"], workspace)
         if init.returncode != 0:
             return {"status": "failed", "step": "init", "output": _output(init)}

@@ -305,6 +305,12 @@ class AWSTerraformGenerator(TerraformGenerator):
             elif src["type"] == "ec2" and tgt["type"] == "elastic_ip":
                 tgt["instance_ref"] = src["slug"]
 
+            # ebs_volume -> ec2 (the volume must be created in the instance's AZ)
+            if src["type"] == "ec2" and tgt["type"] == "ebs_volume":
+                tgt["instance_ref"] = src["slug"]
+            elif src["type"] == "ebs_volume" and tgt["type"] == "ec2":
+                src["instance_ref"] = tgt["slug"]
+
             # route53_zone -> route53_record
             if src["type"] == "route53_zone" and tgt["type"] == "route53_record":
                 tgt["zone_ref"] = src["slug"]
@@ -333,6 +339,17 @@ class AWSTerraformGenerator(TerraformGenerator):
             index = az_counters.get(group_key, 0)
             az_counters[group_key] = index + 1
             subnet["az"] = f"{aws_region}{az_letters[index % len(az_letters)]}"
+
+        # EBS volumes must live in the same AZ as the instance they attach to,
+        # otherwise AWS rejects the attachment. Pull the AZ from the instance's
+        # subnet when the two are connected.
+        ec2_by_slug = {r["slug"]: r for r in resources.get("ec2", [])}
+        for ebs in resources.get("ebs_volume", []):
+            instance = ec2_by_slug.get(ebs.get("instance_ref"))
+            if instance and instance.get("subnet_ref"):
+                instance_az = subnet_by_slug.get(instance["subnet_ref"], {}).get("az")
+                if instance_az:
+                    ebs["az"] = instance_az
 
         # ── Database / cache subnet groups ───────────────────────────
         # A subnet group must reference only subnets from its own VPC, and

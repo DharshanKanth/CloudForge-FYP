@@ -3,7 +3,7 @@ resource "aws_sqs_queue" "{{ resource.slug }}" {
   visibility_timeout_seconds = {{ resource.props.get('visibilityTimeout', 30) | hcl_int(30) }}
   message_retention_seconds  = {{ resource.props.get('messageRetention', 345600) | hcl_int(345600) }}
   delay_seconds              = {{ resource.props.get('delaySeconds', 0) | hcl_int(0) }}
-  maximum_message_size       = {{ resource.props.get('maxMessageSize', 262144) | hcl_int(262144) }}
+  max_message_size           = {{ resource.props.get('maxMessageSize', 262144) | hcl_int(262144) }}
 
   tags = {
     Name      = "{{ resource.props.get('name', resource.slug) }}"

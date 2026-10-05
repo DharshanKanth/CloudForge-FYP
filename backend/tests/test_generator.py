@@ -154,3 +154,58 @@ def test_region_aware_fallbacks_for_ec2_and_ebs():
     main = next(f.content for f in files if f.filename == "main.tf")
     assert 'default     = "t3.micro"' in variables
     assert 'availability_zone = "eu-west-1a"' in main
+
+
+def test_templates_use_provider_valid_arguments():
+    """Guards against arguments the AWS provider rejects (found by running the
+    real `terraform validate` over the generated output)."""
+    gen = AWSTerraformGenerator()
+
+    sqs = gen.generate(
+        [{"id": "q", "type": "sqs", "data": {"resourceType": "sqs", "properties": {"name": "q"}}}],
+        [], "SQS",
+    )
+    sqs_main = next(f.content for f in sqs if f.filename == "main.tf")
+    assert "max_message_size" in sqs_main
+    assert "maximum_message_size" not in sqs_main
+
+    aurora = gen.generate(
+        [{"id": "a", "type": "aurora", "data": {"resourceType": "aurora", "properties": {
+            "identifier": "a", "engine": "aurora-mysql"}}}],
+        [], "Aurora",
+    )
+    aurora_main = next(f.content for f in aurora if f.filename == "main.tf")
+    assert "manage_master_user_password = true" in aurora_main
+    assert "manage_master_password" not in aurora_main
+
+    efs_nodes = [
+        {"id": "vpc1", "type": "vpc", "data": {"resourceType": "vpc", "properties": {"name": "v"}}},
+        {"id": "sub1", "type": "subnet", "data": {"resourceType": "subnet", "properties": {"name": "s"}}},
+        {"id": "efs1", "type": "efs", "data": {"resourceType": "efs", "properties": {"name": "files"}}},
+    ]
+    efs_edges = [{"source": "vpc1", "target": "sub1"}, {"source": "sub1", "target": "efs1"}]
+    efs_main = next(f.content for f in gen.generate(efs_nodes, efs_edges, "EFS") if f.filename == "main.tf")
+    mount_block = efs_main.split('resource "aws_efs_mount_target"')[1].split("resource ")[0]
+    assert "tags = {" not in mount_block  # aws_efs_mount_target has no tags argument
+
+
+def test_ebs_volume_matches_instance_subnet_az():
+    """An EBS volume must be created in the same AZ as the instance it attaches
+    to; it takes the AZ of the instance's subnet."""
+    gen = AWSTerraformGenerator()
+    nodes = [
+        {"id": "vpc1", "type": "vpc", "data": {"resourceType": "vpc", "properties": {"name": "v"}}},
+        {"id": "s1", "type": "subnet", "data": {"resourceType": "subnet", "properties": {"name": "sub-a"}}},
+        {"id": "s2", "type": "subnet", "data": {"resourceType": "subnet", "properties": {"name": "sub-b"}}},
+        {"id": "ec2x", "type": "ec2", "data": {"resourceType": "ec2", "properties": {"name": "web"}}},
+        {"id": "vol", "type": "ebs_volume", "data": {"resourceType": "ebs_volume", "properties": {"name": "data", "size": 8}}},
+    ]
+    edges = [
+        {"source": "vpc1", "target": "s1"},
+        {"source": "vpc1", "target": "s2"},
+        {"source": "s2", "target": "ec2x"},
+        {"source": "ec2x", "target": "vol"},
+    ]
+    main = next(f.content for f in gen.generate(nodes, edges, "EBS") if f.filename == "main.tf")
+    ebs_block = main.split('resource "aws_ebs_volume"')[1].split("resource ")[0]
+    assert 'availability_zone = "us-east-1b"' in ebs_block

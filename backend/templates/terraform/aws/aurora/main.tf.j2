@@ -2,7 +2,7 @@ resource "aws_rds_cluster" "{{ resource.slug }}" {
   cluster_identifier     = "{{ aws_name(resource.props.get('identifier', resource.slug), 63) }}"
   engine                 = "{{ resource.props.get('engine', 'aurora-mysql') }}"
   master_username        = "{{ resource.props.get('username', 'admin') }}"
-  manage_master_password = true
+  manage_master_user_password = true
   database_name          = "{{ resource.props.get('dbName', 'appdb') }}"
   storage_encrypted      = true
   skip_final_snapshot    = true
