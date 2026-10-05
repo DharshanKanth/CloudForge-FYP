@@ -32,13 +32,13 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
       - name: Install frontend deps
         working-directory: frontend
-        run: |
-          npm ci
-          npm install --save-dev vitest @testing-library/react @testing-library/jest-dom jsdom
+        run: npm ci
+      - name: Type-check and build
+        working-directory: frontend
+        run: npm run build
       - name: Run frontend tests
         working-directory: frontend
-        run: |
-          npx vitest run
+        run: npx vitest run
