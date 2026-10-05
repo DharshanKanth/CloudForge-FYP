@@ -241,6 +241,53 @@ function nestNode(nodes: CloudNode[], childId: string, parentId: string): CloudN
   return parentsFirst(updated);
 }
 
+/** Un-nest a node, preserving its absolute canvas position. */
+function detachNode(nodes: CloudNode[], childId: string): CloudNode[] {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const child = byId.get(childId);
+  if (!child || !child.parentId) return nodes;
+  const abs = absolutePosition(child, byId);
+  return parentsFirst(
+    nodes.map((n) =>
+      n.id === childId
+        ? ({ ...n, parentId: undefined, position: { x: abs.x, y: abs.y } } as CloudNode)
+        : n
+    )
+  );
+}
+
+/** The child/parent pair an edge implies, or null if it is not a containment edge. */
+function containmentPair(
+  nodes: CloudNode[],
+  edge: { source: string; target: string }
+): { childId: string; parentId: string } | null {
+  const source = nodes.find((n) => n.id === edge.source);
+  const target = nodes.find((n) => n.id === edge.target);
+  if (!source || !target) return null;
+  const sourceType = source.data.resourceType;
+  const targetType = target.data.resourceType;
+  if (CONTAINMENT_CHILDREN[targetType]?.has(sourceType)) {
+    return { childId: source.id, parentId: target.id };
+  }
+  if (CONTAINMENT_CHILDREN[sourceType]?.has(targetType)) {
+    return { childId: target.id, parentId: source.id };
+  }
+  return null;
+}
+
+/** Nest every edge-implied child into its container (idempotent). */
+function nestFromEdges(
+  nodes: CloudNode[],
+  edges: { source: string; target: string }[]
+): CloudNode[] {
+  let result = nodes;
+  for (const edge of edges) {
+    const pair = containmentPair(result, edge);
+    if (pair) result = nestNode(result, pair.childId, pair.parentId);
+  }
+  return result;
+}
+
 /* ── MiniMap colors ─────────────────────────────────────────────────── */
 
 const RESOURCE_COLORS: Record<string, string> = {
@@ -307,8 +354,9 @@ export default function Builder() {
               : 'resourceNode',
             data: { ...n.data, collapsed: false },
           }));
-          setNodes(loadedNodes);
-          setEdges(archRes.data.edges || []);
+          const loadedEdges = archRes.data.edges || [];
+          setNodes(nestFromEdges(loadedNodes, loadedEdges));
+          setEdges(loadedEdges);
           if (archRes.data.aws_region) setSelectedRegion(archRes.data.aws_region);
         } else {
           setShowTemplates(true);
@@ -735,6 +783,31 @@ export default function Builder() {
     [setEdges]
   );
 
+  // Deleting a containment edge pulls its child back out of the big node
+  // (unless another remaining edge still implies the same nesting).
+  const handleEdgesDelete = useCallback(
+    (deleted: Edge[]) => {
+      if (deleted.length === 0) return;
+      const deletedKeys = new Set(deleted.map((e) => `${e.source}->${e.target}`));
+      const remaining = edges.filter((e) => !deletedKeys.has(`${e.source}->${e.target}`));
+      setNodes((nds) => {
+        let result = nds;
+        for (const edge of deleted) {
+          const pair = containmentPair(result, edge);
+          if (!pair) continue;
+          const stillNested = remaining.some(
+            (e) =>
+              (e.source === pair.childId && e.target === pair.parentId) ||
+              (e.source === pair.parentId && e.target === pair.childId)
+          );
+          if (!stillNested) result = detachNode(result, pair.childId);
+        }
+        return result;
+      });
+    },
+    [edges, setNodes]
+  );
+
   const handlePropertyChange = useCallback(
     (nodeId: string, newProperties: Record<string, any>) => {
       setNodes((nds) =>
@@ -952,6 +1025,7 @@ export default function Builder() {
               edges={edges}
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
+              onEdgesDelete={handleEdgesDelete}
               onNodesDelete={handleNodesDelete}
               onConnect={onConnect}
               connectionMode={ConnectionMode.Loose}
