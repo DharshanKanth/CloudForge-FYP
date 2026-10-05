@@ -130,6 +130,9 @@ cloudforge/
 - Schema is owned by Alembic and applied automatically on startup
   (`app/database.run_migrations`). Pre-existing databases are adopted safely.
 - Both images define a `HEALTHCHECK` (backend `/api/health`, frontend `/`).
+- The auth rate limiter is **in-process** (per uvicorn worker). It is fine for a
+  single worker; with multiple workers or horizontally scaled replicas, put a
+  shared limiter in front (e.g. nginx `limit_req`) instead of relying on it.
 
 ---
 
