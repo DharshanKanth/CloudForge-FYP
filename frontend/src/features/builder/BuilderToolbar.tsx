@@ -16,12 +16,15 @@ interface BuilderToolbarProps {
   onSearch: (query: string) => void;
   onClearSearch: () => void;
   searchQuery: string;
+  costTotal?: number | null;
+  securityHigh?: number | null;
 }
 
 export function BuilderToolbar({
   rfInstance, saving, resourceCount, edgeCount,
   onSave, onAutoLayout, onExpandAll, onCollapseAll,
   onSearch, onClearSearch, searchQuery,
+  costTotal, securityHigh,
 }: BuilderToolbarProps) {
   const [localQuery, setLocalQuery] = useState(searchQuery || '');
 
@@ -88,6 +91,24 @@ export function BuilderToolbar({
         {resourceCount} resource{resourceCount !== 1 ? 's' : ''} ·{' '}
         {edgeCount} connection{edgeCount !== 1 ? 's' : ''}
       </span>
+
+      {/* Cost + security insights (computed from the saved architecture) */}
+      {costTotal != null && (
+        <span
+          className="text-[10px] text-emerald-400 hidden lg:block"
+          title="Rough on-demand monthly estimate (USD)"
+        >
+          ~${Math.round(costTotal).toLocaleString()}/mo
+        </span>
+      )}
+      {securityHigh != null && securityHigh > 0 && (
+        <span
+          className="text-[10px] text-red-400 hidden lg:block"
+          title={`${securityHigh} high-severity security finding(s)`}
+        >
+          ⚠ {securityHigh} high-risk
+        </span>
+      )}
 
       {/* Save */}
       <button

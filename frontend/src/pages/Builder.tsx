@@ -209,6 +209,8 @@ export default function Builder() {
   const [searchQuery, setSearchQuery] = useState('');
   const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null);
   const [selectedRegion, setSelectedRegion] = useState("us-east-1");
+  const [costTotal, setCostTotal] = useState<number | null>(null);
+  const [securityHigh, setSecurityHigh] = useState<number | null>(null);
 
   const AWS_REGIONS = [
     { label: "US East (N. Virginia)", value: "us-east-1" },
@@ -221,6 +223,21 @@ export default function Builder() {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
 
   // ── Load project ────────────────────────────────────────────────────
+
+  // Cost + security insights are computed from the saved architecture, so
+  // refresh them after loading and after each successful save/validate.
+  const refreshInsights = useCallback(async (pid: string) => {
+    try {
+      const [costRes, secRes] = await Promise.all([
+        architectureApi.cost(pid),
+        architectureApi.security(pid),
+      ]);
+      setCostTotal(costRes.data.monthly_total ?? null);
+      setSecurityHigh(secRes.data.counts?.high ?? 0);
+    } catch {
+      // No saved architecture yet — leave the figures unset.
+    }
+  }, []);
 
   useEffect(() => {
     if (!projectId) return;
@@ -246,6 +263,7 @@ export default function Builder() {
         } else {
           setShowTemplates(true);
         }
+        void refreshInsights(projectId);
       } catch (err: any) {
         if (err.response?.status !== 404) {
           toast.error('Failed to load architecture');
@@ -775,6 +793,7 @@ export default function Builder() {
       await architectureApi.save(projectId, { nodes, edges, aws_region: selectedRegion });
       const res = await architectureApi.validate(projectId);
       setValidationResult(res.data);
+      void refreshInsights(projectId);
       if (res.data.valid) {
         toast.success('Validation passed!');
       } else {
@@ -933,6 +952,8 @@ export default function Builder() {
         onSearch={handleSearch}
         onClearSearch={handleClearSearch}
         searchQuery={searchQuery}
+        costTotal={costTotal}
+        securityHigh={securityHigh}
       />
 
       {/* Breadcrumb (drill-down) */}

@@ -106,6 +106,8 @@ export const architectureApi = {
   save: (projectId: string, data: { nodes: any[]; edges: any[]; aws_region?: string }) =>
     api.put(`/api/projects/${projectId}/architecture`, data),
   validate: (projectId: string) => api.post(`/api/projects/${projectId}/validate`),
+  security: (projectId: string) => api.get(`/api/projects/${projectId}/security`),
+  cost: (projectId: string) => api.get(`/api/projects/${projectId}/cost`),
 };
 
 // Terraform
