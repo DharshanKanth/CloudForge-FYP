@@ -36,6 +36,8 @@ docker-compose up --build
 - Backend API: http://localhost:8000
 - API Docs: http://localhost:8000/docs
 
+> On first start the backend seeds a demo account (**demo@cloudforge.io / demo1234**) and a ready-made demo project. Set `CLOUDFORGE_SEED_DEMO=false` for a clean database.
+
 ---
 
 ## Quick Start — Local Development
@@ -115,6 +117,19 @@ cloudforge/
 ├── docker-compose.yml
 └── README.md
 ```
+
+---
+
+## Production Notes
+
+- The container runs as a non-root user and its default command starts uvicorn
+  **without** `--reload` (docker-compose adds `--reload` for local dev).
+- Set `CLOUDFORGE_ENV=production`. The app then **requires** `SECRET_KEY` and
+  `ALLOWED_ORIGINS` (comma-separated) and refuses to start without them, and it
+  stops seeding demo data.
+- Schema is owned by Alembic and applied automatically on startup
+  (`app/database.run_migrations`). Pre-existing databases are adopted safely.
+- Both images define a `HEALTHCHECK` (backend `/api/health`, frontend `/`).
 
 ---
 
