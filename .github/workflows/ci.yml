@@ -9,6 +9,22 @@ on:
 jobs:
   backend-tests:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: cloudforge
+          POSTGRES_USER: cloudforge
+          POSTGRES_PASSWORD: cloudforge
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cloudforge"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql+asyncpg://cloudforge:cloudforge@localhost:5432/cloudforge
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
@@ -20,6 +36,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r backend/requirements.txt
           pip install pytest
+      - name: Check migrations match the models
+        working-directory: backend
+        run: |
+          alembic upgrade head
+          alembic check
       - name: Run backend tests
         working-directory: backend
         run: |

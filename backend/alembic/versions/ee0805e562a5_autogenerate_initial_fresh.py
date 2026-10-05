@@ -17,12 +17,15 @@ def upgrade():
     op.create_table(
         'users',
         sa.Column('id', sa.String(), primary_key=True),
-        sa.Column('email', sa.String(), nullable=False, unique=True),
+        sa.Column('email', sa.String(), nullable=False),
         sa.Column('username', sa.String(), nullable=False, unique=True),
         sa.Column('hashed_password', sa.String(), nullable=False),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()')),
         sa.Column('updated_at', sa.DateTime(timezone=True), onupdate=sa.text('now()')),
     )
+    # Model uses Column(unique=True, index=True): SQLAlchemy emits a unique
+    # INDEX (ix_users_email), not a unique constraint.
+    op.create_index('ix_users_email', 'users', ['email'], unique=True)
 
     op.create_table(
         'projects',
