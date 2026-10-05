@@ -1,3 +1,6 @@
+import asyncio
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
@@ -9,8 +12,10 @@ from app.models.deployment_event import DeploymentEvent
 from app.models.user import User
 from app.schemas.project import ProjectCreate, ProjectUpdate, ProjectResponse
 from app.core.deps import get_current_user
+from app.services import deployment_service
 
 router = APIRouter()
+logger = logging.getLogger("cloudforge.projects")
 
 
 @router.post("", response_model=ProjectResponse)
@@ -118,6 +123,13 @@ async def delete_project(
     await db.execute(
         delete(DeploymentEvent).where(DeploymentEvent.project_id == project.id)
     )
+    # Drop the local Terraform workspace (state + cached providers). Resources
+    # already deployed keep running in the cloud, so destroy them first — this
+    # only removes CloudForge's ability to track them.
+    try:
+        await asyncio.to_thread(deployment_service.clear, project.id, True)
+    except Exception:
+        logger.warning("Failed to clear deployment workspace for %s", project.id, exc_info=True)
     await db.delete(project)
     await db.commit()
     return {"message": "Project deleted"}
