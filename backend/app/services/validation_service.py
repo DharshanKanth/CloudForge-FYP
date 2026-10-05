@@ -583,14 +583,33 @@ def _validate_structural_requirements(
     if ntype == "ec2" and not (neighbor_ids & subnet_ids):
         issues.append(ValidationIssue(
             level="warning", resource_id=nid, resource_type=ntype,
-            message=f"EC2 '{label}' is not connected to any Subnet.",
+            message=(
+                f"EC2 '{label}' is not connected to any Subnet — it will launch "
+                f"in the account's default VPC."
+            ),
         ))
 
     # rds should connect to a subnet (warning)
     if ntype == "rds" and not (neighbor_ids & subnet_ids):
         issues.append(ValidationIssue(
             level="warning", resource_id=nid, resource_type=ntype,
-            message=f"RDS '{label}' is not connected to any Subnet.",
+            message=(
+                f"RDS '{label}' is not connected to any Subnet — it will be "
+                f"created in the account's default VPC."
+            ),
+        ))
+
+    # A security group can only infer its VPC from the resources it protects.
+    # With none, it silently lands in the account's default VPC.
+    if ntype == "security_group" and not (
+        neighbor_types & {"ec2", "rds", "lambda", "load_balancer"}
+    ):
+        issues.append(ValidationIssue(
+            level="warning", resource_id=nid, resource_type=ntype,
+            message=(
+                f"Security Group '{label}' is not attached to any resource — "
+                f"it will be created in the account's default VPC."
+            ),
         ))
 
     # ecs_cluster should connect to an EC2 instance or ECR repository (warning)

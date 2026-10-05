@@ -391,6 +391,33 @@ def test_rds_with_two_subnets_is_valid():
     assert res.valid is True, [i.message for i in res.issues if i.level == "error"]
 
 
+def test_security_group_without_attachment_warns_default_vpc():
+    """An unattached SG can't infer a VPC and lands in the default VPC."""
+    nodes = [
+        {"id": "sg", "type": "security_group", "data": {"resourceType": "security_group", "properties": {"name": "web-sg"}}},
+    ]
+    res = validate_architecture(nodes, [])
+    assert any(
+        i.level == "warning" and "default VPC" in i.message for i in res.issues
+    )
+
+
+def test_security_group_attached_to_vpc_resource_has_no_default_vpc_warning():
+    nodes = [
+        {"id": "vpc", "type": "vpc", "data": {"resourceType": "vpc", "properties": {"name": "v", "cidr": "10.0.0.0/16"}}},
+        {"id": "sub", "type": "subnet", "data": {"resourceType": "subnet", "properties": {"name": "s", "cidr": "10.0.1.0/24"}}},
+        {"id": "ec2", "type": "ec2", "data": {"resourceType": "ec2", "properties": {"name": "web", "instanceType": "t3.micro"}}},
+        {"id": "sg", "type": "security_group", "data": {"resourceType": "security_group", "properties": {"name": "web-sg"}}},
+    ]
+    edges = [
+        {"source": "vpc", "target": "sub"},
+        {"source": "sub", "target": "ec2"},
+        {"source": "sg", "target": "ec2"},
+    ]
+    res = validate_architecture(nodes, edges)
+    assert not any("default VPC" in i.message for i in res.issues)
+
+
 def test_rds_without_subnet_is_warning():
     nodes = [
         {"id": "db", "type": "rds", "data": {"resourceType": "rds", "properties": {
