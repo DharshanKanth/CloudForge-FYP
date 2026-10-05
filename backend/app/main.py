@@ -1,10 +1,14 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+import logging
 import os
 
 from app.database import run_migrations
+from app.seed import ensure_demo_seed, should_seed
 from app.routers import auth, projects, architecture, terraform, infrastructure
+
+logger = logging.getLogger("cloudforge")
 
 
 @asynccontextmanager
@@ -12,6 +16,12 @@ async def lifespan(app: FastAPI):
     # Schema is owned by Alembic (app/database.run_migrations). It stamps
     # pre-existing create_all databases before upgrading, so data is preserved.
     run_migrations()
+    if should_seed():
+        try:
+            await ensure_demo_seed()
+        except Exception:
+            # A seed failure must not take the API down.
+            logger.exception("Demo seed failed; continuing startup")
     yield
 
 
