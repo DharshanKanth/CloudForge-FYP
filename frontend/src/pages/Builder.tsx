@@ -173,6 +173,74 @@ function isPositionInsideNode(
   );
 }
 
+/** Which resource types belong inside each container when connected. */
+const CONTAINMENT_CHILDREN: Record<string, Set<string>> = {
+  vpc: new Set(['subnet', 'internet_gateway', 'route_table', 'nat_gateway', 'lambda', 'ecs_cluster', 'efs']),
+  subnet: new Set(['ec2', 'rds', 'nat_gateway', 'lambda', 'elasticache', 'aurora', 'redshift', 'efs', 'ebs_volume']),
+};
+
+/** Absolute (canvas) position of a node, walking up its parent chain. */
+function absolutePosition(node: CloudNode, byId: Map<string, CloudNode>): { x: number; y: number } {
+  let x = node.position.x;
+  let y = node.position.y;
+  let parentId = node.parentId;
+  const seen = new Set<string>();
+  while (parentId && !seen.has(parentId)) {
+    seen.add(parentId);
+    const parent = byId.get(parentId);
+    if (!parent) break;
+    x += parent.position.x;
+    y += parent.position.y;
+    parentId = parent.parentId;
+  }
+  return { x, y };
+}
+
+/** React Flow requires every parent to appear before its children. */
+function parentsFirst(nodes: CloudNode[]): CloudNode[] {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const depth = (start: CloudNode) => {
+    let d = 0;
+    let parentId = start.parentId;
+    const seen = new Set<string>();
+    while (parentId && !seen.has(parentId)) {
+      seen.add(parentId);
+      d += 1;
+      parentId = byId.get(parentId)?.parentId;
+    }
+    return d;
+  };
+  return [...nodes].sort((a, b) => depth(a) - depth(b));
+}
+
+/** Move `childId` inside `parentId`, keeping its on-canvas position. */
+function nestNode(nodes: CloudNode[], childId: string, parentId: string): CloudNode[] {
+  if (childId === parentId) return nodes;
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const child = byId.get(childId);
+  const parent = byId.get(parentId);
+  if (!child || !parent || child.parentId === parentId) return nodes;
+
+  const absChild = absolutePosition(child, byId);
+  const absParent = absolutePosition(parent, byId);
+
+  const updated = nodes.map((n) => {
+    if (n.id === childId) {
+      return {
+        ...n,
+        parentId,
+        position: { x: absChild.x - absParent.x, y: absChild.y - absParent.y },
+      } as CloudNode;
+    }
+    // Expand the container so the newly nested resource is actually visible.
+    if (n.id === parentId && n.data.collapsed) {
+      return { ...n, data: { ...n.data, collapsed: false, childCount: 0 } } as CloudNode;
+    }
+    return n;
+  });
+  return parentsFirst(updated);
+}
+
 /* ── MiniMap colors ─────────────────────────────────────────────────── */
 
 const RESOURCE_COLORS: Record<string, string> = {
@@ -529,8 +597,25 @@ export default function Builder() {
           eds
         );
       });
+
+      // Nest related resources inside their container so collapsing the big
+      // node hides them: subnet -> VPC, compute/data resources -> Subnet.
+      setNodes((nds) => {
+        const source = nds.find((n) => n.id === connection.source);
+        const target = nds.find((n) => n.id === connection.target);
+        if (!source || !target) return nds;
+        const sourceType = source.data.resourceType;
+        const targetType = target.data.resourceType;
+        if (CONTAINMENT_CHILDREN[targetType]?.has(sourceType)) {
+          return nestNode(nds, source.id, target.id);
+        }
+        if (CONTAINMENT_CHILDREN[sourceType]?.has(targetType)) {
+          return nestNode(nds, target.id, source.id);
+        }
+        return nds;
+      });
     },
-    [setEdges]
+    [setEdges, setNodes]
   );
 
   // ── Drag & drop (with drop-into-container) ──────────────────────────
@@ -609,8 +694,27 @@ export default function Builder() {
   // ── Selection / deletion ────────────────────────────────────────────
 
   const handleNodeClick = useCallback((_: React.MouseEvent, node: CloudNode) => {
-    setSelectedNode(node);
-  }, []);
+    // Clicking a big node (VPC/Subnet) also expands it so the resources nested
+    // inside become visible; collapse stays on the header chevron.
+    const isContainer = CONTAINER_TYPES.has(node.data.resourceType);
+    const shouldExpand = isContainer && !!node.data.collapsed;
+    if (shouldExpand) {
+      const expanded = {
+        ...node,
+        data: { ...node.data, collapsed: false, childCount: 0 },
+      } as CloudNode;
+      setSelectedNode(expanded);
+      setNodes((nds) =>
+        nds.map((n) =>
+          n.id === node.id
+            ? ({ ...n, data: { ...n.data, collapsed: false, childCount: 0 } } as CloudNode)
+            : n
+        )
+      );
+    } else {
+      setSelectedNode(node);
+    }
+  }, [setNodes]);
 
   const handlePaneClick = useCallback(() => {
     setSelectedNode(null);
