@@ -1,5 +1,5 @@
 resource "aws_ebs_volume" "{{ resource.slug }}" {
-  availability_zone = "{{ resource.props.get('availabilityZone', 'us-east-1a') }}"
+  availability_zone = "{{ resource.props.get('availabilityZone') or (aws_region ~ 'a') }}"
   size              = {{ resource.props.get('size', 8) | hcl_int(8) }}
   type              = "{{ resource.props.get('volumeType', 'gp3') }}"
   encrypted         = true

@@ -35,7 +35,7 @@ variable "subnet_cidr_{{ subnet.slug }}" {
 variable "ec2_instance_type_{{ ec2.slug }}" {
   description = "Instance type for EC2 {{ ec2.props.get('name', ec2.slug) }}"
   type        = string
-  default     = "{{ ec2.props.get('instanceType', 't2.micro') }}"
+  default     = "{{ ec2.props.get('instanceType', 't3.micro') }}"
 }
 
 {% endfor %}

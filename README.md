@@ -20,7 +20,7 @@
 
 ## Tech Stack
 
-**Frontend**: React 18, TypeScript, Vite, React Flow (xyflow), Tailwind CSS v4, Monaco Editor, Axios  
+**Frontend**: React 19, TypeScript, Vite, React Flow (xyflow), Tailwind CSS v4, Monaco Editor, Axios  
 **Backend**: Python 3.11, FastAPI, SQLAlchemy (async), PostgreSQL, Pydantic v2, Jinja2  
 **Infrastructure**: Docker, docker-compose, Nginx
 

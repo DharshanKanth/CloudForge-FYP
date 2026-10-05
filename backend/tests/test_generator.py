@@ -136,3 +136,21 @@ def test_subnets_span_azs_and_db_subnet_group_is_vpc_scoped():
     assert "aws_subnet.subnet_a.id" in db_block
     assert "aws_subnet.subnet_b.id" in db_block
     assert "aws_subnet.subnet_c.id" not in db_block
+
+
+def test_region_aware_fallbacks_for_ec2_and_ebs():
+    """Fallbacks must use the deployment region and the Free-Tier t3.micro,
+    not a hardcoded us-east-1a / t2.micro that breaks in other regions."""
+    gen = AWSTerraformGenerator()
+    nodes = [
+        {"id": "vpc1", "type": "vpc", "data": {"resourceType": "vpc", "properties": {"name": "vpc"}}},
+        {"id": "sub1", "type": "subnet", "data": {"resourceType": "subnet", "properties": {"name": "subnet"}}},
+        {"id": "ec2x", "type": "ec2", "data": {"resourceType": "ec2", "properties": {"name": "web"}}},
+        {"id": "vol", "type": "ebs_volume", "data": {"resourceType": "ebs_volume", "properties": {"name": "data", "size": 8}}},
+    ]
+    edges = [{"source": "vpc1", "target": "sub1"}, {"source": "sub1", "target": "ec2x"}]
+    files = gen.generate(nodes, edges, "Fallback", aws_region="eu-west-1")
+    variables = next(f.content for f in files if f.filename == "variables.tf")
+    main = next(f.content for f in files if f.filename == "main.tf")
+    assert 'default     = "t3.micro"' in variables
+    assert 'availability_zone = "eu-west-1a"' in main
