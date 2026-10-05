@@ -89,8 +89,13 @@ check("unknown type skipped", "Skipped 'quantum_computer'" in main)
 status, pd = call("POST", f"/api/projects/{project_id}/terraform/plan-destroy")
 check("plan-destroy guard (409 pre-deploy)", status == 409, f"(HTTP {status})")
 
-# 7. Cleanup: delete the project
+# 6b. Record a deployment-history row (clear on an empty workspace is instant
+#     and side-effect free) so the delete below exercises the FK cascade fix.
+status, _ = call("DELETE", f"/api/projects/{project_id}/terraform/clear")
+check("clear records event", status == 200, f"(HTTP {status})")
+
+# 7. Cleanup: delete the project (must succeed even with deployment history)
 status, _ = call("DELETE", f"/api/projects/{project_id}")
-check("delete project", status == 200, f"(HTTP {status})")
+check("delete project with history", status == 200, f"(HTTP {status})")
 
 print("\nAll smoke checks passed. Backend is healthy end-to-end.")

@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from typing import List
 from app.database import get_db
 from app.models.project import Project
 from app.models.architecture import Architecture
+from app.models.deployment_event import DeploymentEvent
 from app.models.user import User
 from app.schemas.project import ProjectCreate, ProjectUpdate, ProjectResponse
 from app.core.deps import get_current_user
@@ -111,6 +112,12 @@ async def delete_project(
     current_user: User = Depends(get_current_user),
 ):
     project = await _get_project_or_404(project_id, current_user.id, db)
+    # deployment_events references projects without ON DELETE CASCADE, so
+    # remove the audit rows first — otherwise deleting a project that has any
+    # deployment history fails on the foreign key constraint.
+    await db.execute(
+        delete(DeploymentEvent).where(DeploymentEvent.project_id == project.id)
+    )
     await db.delete(project)
     await db.commit()
     return {"message": "Project deleted"}
