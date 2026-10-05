@@ -9,6 +9,8 @@ from app.models.user import User
 from app.schemas.architecture import ArchitectureSave, ArchitectureResponse, ValidationResult
 from app.core.deps import get_current_user
 from app.services.validation_service import validate_architecture
+from app.services.cost_service import estimate as estimate_cost
+from app.services.security_service import analyze as analyze_security
 
 router = APIRouter()
 
@@ -100,6 +102,40 @@ async def validate_project_architecture(
         raise HTTPException(status_code=404, detail="Architecture not found")
 
     return validate_architecture(arch.nodes, arch.edges)
+
+
+@router.get("/{project_id}/security")
+async def security_review(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Static security findings for a project's architecture."""
+    await _ensure_project_access(project_id, current_user.id, db)
+    result = await db.execute(
+        select(Architecture).where(Architecture.project_id == project_id)
+    )
+    arch = result.scalar_one_or_none()
+    if not arch:
+        raise HTTPException(status_code=404, detail="Architecture not found")
+    return analyze_security(arch.nodes, arch.edges)
+
+
+@router.get("/{project_id}/cost")
+async def cost_estimate(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Rough monthly cost estimate for a project's architecture."""
+    await _ensure_project_access(project_id, current_user.id, db)
+    result = await db.execute(
+        select(Architecture).where(Architecture.project_id == project_id)
+    )
+    arch = result.scalar_one_or_none()
+    if not arch:
+        raise HTTPException(status_code=404, detail="Architecture not found")
+    return estimate_cost(arch.nodes)
 
 
 async def _ensure_project_access(project_id: str, user_id: str, db: AsyncSession):

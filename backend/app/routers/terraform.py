@@ -264,7 +264,7 @@ def _generate_or_400(project: Project, arch: Architecture):
             project_name=project.name,
             aws_region=arch.aws_region,
         )
-    except ValueError as exc:
+    except (ValueError, NotImplementedError) as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
 

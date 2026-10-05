@@ -209,3 +209,15 @@ def test_ebs_volume_matches_instance_subnet_az():
     main = next(f.content for f in gen.generate(nodes, edges, "EBS") if f.filename == "main.tf")
     ebs_block = main.split('resource "aws_ebs_volume"')[1].split("resource ")[0]
     assert 'availability_zone = "us-east-1b"' in ebs_block
+
+
+def test_unimplemented_providers_raise_clear_error():
+    import pytest
+
+    from app.terraform.generator import get_generator
+
+    with pytest.raises(NotImplementedError) as exc:
+        get_generator("azure").generate([], [], "proj")
+    assert "Azure" in str(exc.value)
+    with pytest.raises(ValueError):
+        get_generator("oracle")

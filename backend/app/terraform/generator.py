@@ -479,14 +479,38 @@ class AWSTerraformGenerator(TerraformGenerator):
         ]
 
 
+class _UnimplementedGenerator(TerraformGenerator):
+    """Placeholder for providers that are not implemented yet.
+
+    Registered in the factory so an unsupported provider yields a clear,
+    user-facing message instead of a generic "unsupported provider" error.
+    """
+
+    provider_name = "unknown"
+
+    def generate(self, nodes, edges, project_name, aws_region="us-east-1"):
+        raise NotImplementedError(
+            f"{self.provider_name} support is not implemented yet. "
+            f"CloudForge currently generates Terraform for AWS only."
+        )
+
+
+class AzureTerraformGenerator(_UnimplementedGenerator):
+    provider_name = "Azure"
+
+
+class GCPTerraformGenerator(_UnimplementedGenerator):
+    provider_name = "GCP"
+
+
 def get_generator(provider: str) -> TerraformGenerator:
     """Factory function — returns the correct generator for the cloud provider."""
     generators = {
         "aws": AWSTerraformGenerator,
-        # Future: "azure": AzureTerraformGenerator,
-        # Future: "gcp": GCPTerraformGenerator,
+        "azure": AzureTerraformGenerator,
+        "gcp": GCPTerraformGenerator,
     }
-    cls = generators.get(provider.lower())
+    cls = generators.get((provider or "").lower())
     if not cls:
         raise ValueError(f"Unsupported provider: {provider}. Supported: {list(generators.keys())}")
     return cls()
