@@ -4,8 +4,35 @@ import type { ResourceType } from '../../types';
 
 interface ConfigPanelProps {
   node: Node | null;
+  region: string;
   onClose: () => void;
   onChange: (nodeId: string, properties: Record<string, any>) => void;
+}
+
+interface ConfigComponentProps {
+  props: Record<string, any>;
+  region: string;
+  onChange: (v: any) => void;
+}
+
+// Availability Zone options are derived from the Builder's selected region so
+// the panel never offers zones from a different region (which would generate
+// resources AWS rejects). Letters a–d cover every commercial region's AZ count.
+const AZ_LETTERS = ['a', 'b', 'c', 'd'];
+
+function regionAzOptions(region: string): { label: string; value: string }[] {
+  return AZ_LETTERS.map((letter) => {
+    const az = `${region}${letter}`;
+    return { label: az, value: az };
+  });
+}
+
+/** The stored AZ if it belongs to `region`, otherwise that region's first AZ. */
+function effectiveAz(props: Record<string, any>, region: string): string {
+  const az = props.availabilityZone;
+  return typeof az === 'string' && az.length === region.length + 1 && az.startsWith(region)
+    ? az
+    : `${region}a`;
 }
 
 function FieldInput({
@@ -88,23 +115,16 @@ function VpcConfig({ props, onChange }: { props: Record<string, any>; onChange: 
   );
 }
 
-function SubnetConfig({ props, onChange }: { props: Record<string, any>; onChange: (v: any) => void }) {
+function SubnetConfig({ props, region, onChange }: ConfigComponentProps) {
   return (
     <div className="space-y-3">
       <FieldInput label="Name" value={props.name} onChange={(v) => onChange({ ...props, name: v })} placeholder="public-subnet" />
       <FieldInput label="CIDR Block" value={props.cidr} onChange={(v) => onChange({ ...props, cidr: v })} placeholder="10.0.1.0/24" />
       <FieldInput
         label="Availability Zone"
-        value={props.availabilityZone}
+        value={effectiveAz(props, region)}
         onChange={(v) => onChange({ ...props, availabilityZone: v })}
-        options={[
-          { label: 'us-east-1a', value: 'us-east-1a' },
-          { label: 'us-east-1b', value: 'us-east-1b' },
-          { label: 'us-east-1c', value: 'us-east-1c' },
-          { label: 'us-west-2a', value: 'us-west-2a' },
-          { label: 'us-west-2b', value: 'us-west-2b' },
-          { label: 'eu-west-1a', value: 'eu-west-1a' },
-        ]}
+        options={regionAzOptions(region)}
       />
       <FieldInput label="Map Public IP" value={props.mapPublicIp ?? true} onChange={(v) => onChange({ ...props, mapPublicIp: v })} type="boolean" />
     </div>
@@ -334,7 +354,7 @@ function ElasticIpConfig({ props, onChange }: { props: Record<string, any>; onCh
   </div>;
 }
 
-function EbsVolumeConfig({ props, onChange }: { props: Record<string, any>; onChange: (v: any) => void }) {
+function EbsVolumeConfig({ props, region, onChange }: ConfigComponentProps) {
   return <div className="space-y-3">
     <FieldInput label="Name" value={props.name} onChange={(v) => onChange({ ...props, name: v })} placeholder="data-volume" />
     <FieldInput label="Size (GB)" value={props.size ?? 8} onChange={(v) => onChange({ ...props, size: v })} type="number" placeholder="8" />
@@ -343,9 +363,7 @@ function EbsVolumeConfig({ props, onChange }: { props: Record<string, any>; onCh
       { label: 'io1 (Provisioned IOPS)', value: 'io1' }, { label: 'io2', value: 'io2' },
       { label: 'st1 (Throughput HDD)', value: 'st1' }, { label: 'sc1 (Cold HDD)', value: 'sc1' },
     ]} />
-    <FieldInput label="Availability Zone" value={props.availabilityZone || 'us-east-1a'} onChange={(v) => onChange({ ...props, availabilityZone: v })} options={[
-      { label: 'us-east-1a', value: 'us-east-1a' }, { label: 'us-east-1b', value: 'us-east-1b' }, { label: 'us-east-1c', value: 'us-east-1c' },
-    ]} />
+    <FieldInput label="Availability Zone" value={effectiveAz(props, region)} onChange={(v) => onChange({ ...props, availabilityZone: v })} options={regionAzOptions(region)} />
   </div>;
 }
 
@@ -501,7 +519,7 @@ function KmsKeyConfig({ props, onChange }: { props: Record<string, any>; onChang
   </div>;
 }
 
-const configComponents: Record<ResourceType, React.ComponentType<{ props: Record<string, any>; onChange: (v: any) => void }>> = {
+const configComponents: Record<ResourceType, React.ComponentType<ConfigComponentProps>> = {
   vpc: VpcConfig,
   subnet: SubnetConfig,
   ec2: Ec2Config,
@@ -537,7 +555,7 @@ const configComponents: Record<ResourceType, React.ComponentType<{ props: Record
   kms_key: KmsKeyConfig,
 };
 
-export function ConfigPanel({ node, onClose, onChange }: ConfigPanelProps) {
+export function ConfigPanel({ node, region, onClose, onChange }: ConfigPanelProps) {
   if (!node) return null;
 
   const resourceType = node.data.resourceType as ResourceType;
@@ -571,6 +589,7 @@ export function ConfigPanel({ node, onClose, onChange }: ConfigPanelProps) {
         {ConfigComponent ? (
           <ConfigComponent
             props={properties}
+            region={region}
             onChange={(newProps) => onChange(node.id, newProps)}
           />
         ) : (

@@ -265,6 +265,43 @@ export default function Builder() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
+  // Keep each resource's Availability Zone in the selected region. Switching
+  // region must not leave nodes pinned to a stale zone (e.g. an EBS volume
+  // still in us-east-1a while deploying to eu-west-1, which cannot attach).
+  useEffect(() => {
+    setNodes((nds) => {
+      let changed = false;
+      const next = nds.map((n) => {
+        const az = n.data?.properties?.availabilityZone;
+        if (typeof az !== 'string' || az.length < 2) return n;
+        const remapped = `${selectedRegion}${az.slice(-1)}`;
+        if (az === remapped) return n;
+        changed = true;
+        return {
+          ...n,
+          data: { ...n.data, properties: { ...n.data.properties, availabilityZone: remapped } },
+        } as CloudNode;
+      });
+      return changed ? next : nds;
+    });
+  }, [selectedRegion, setNodes]);
+
+  // Keep the currently-selected node's snapshot in sync with the remap above,
+  // otherwise editing any other property would write the stale AZ back.
+  useEffect(() => {
+    setSelectedNode((prev) => {
+      if (!prev) return prev;
+      const az = prev.data?.properties?.availabilityZone;
+      if (typeof az !== 'string' || az.length < 2) return prev;
+      const remapped = `${selectedRegion}${az.slice(-1)}`;
+      if (az === remapped) return prev;
+      return {
+        ...prev,
+        data: { ...prev.data, properties: { ...prev.data.properties, availabilityZone: remapped } },
+      } as CloudNode;
+    });
+  }, [selectedRegion]);
+
   // ── Listen for collapse toggle events from GroupNode ────────────────
 
   useEffect(() => {
@@ -857,6 +894,7 @@ export default function Builder() {
         {selectedNode && (
           <ConfigPanel
             node={selectedNode as any}
+            region={selectedRegion}
             onClose={() => setSelectedNode(null)}
             onChange={handlePropertyChange}
           />

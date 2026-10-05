@@ -20,7 +20,7 @@ export const sidebarCategories: SidebarCategory[] = [
     name: 'Networking & DNS',
     items: [
       { type: 'vpc', label: 'VPC', icon: '☁', description: 'Virtual Private Cloud', defaultProperties: { name: 'main-vpc', cidr: '10.0.0.0/16', environment: 'development' } },
-      { type: 'subnet', label: 'Subnet', icon: '⬡', description: 'Network Subnet', defaultProperties: { name: 'public-subnet', cidr: '10.0.1.0/24', availabilityZone: 'us-east-1a', mapPublicIp: true } },
+      { type: 'subnet', label: 'Subnet', icon: '⬡', description: 'Network Subnet', defaultProperties: { name: 'public-subnet', cidr: '10.0.1.0/24', mapPublicIp: true } },
       { type: 'security_group', label: 'Security Group', icon: '🛡', description: 'Firewall Rules', defaultProperties: { name: 'web-sg', description: 'Security group for web servers', allowHttp: true, allowHttps: true, webCidr: '0.0.0.0/0', allowSsh: false, sshCidr: '10.0.0.0/8', allowAllOutbound: true } },
       { type: 'internet_gateway', label: 'Internet Gateway', icon: '🌐', description: 'VPC Internet Access', defaultProperties: { name: 'main-igw' } },
       { type: 'route_table', label: 'Route Table', icon: '🛣', description: 'Network Routes', defaultProperties: { name: 'public-routes' } },
@@ -37,7 +37,7 @@ export const sidebarCategories: SidebarCategory[] = [
     items: [
       { type: 'ec2', label: 'EC2 Instance', icon: '🖥', description: 'Virtual Machine', defaultProperties: { name: 'web-server', instanceType: 't3.micro', associatePublicIp: true, keyPairName: '', rootVolumeSize: 30, rootVolumeType: 'gp3', monitoring: false } },
       { type: 'lambda', label: 'Lambda Function', icon: 'λ', description: 'Serverless Compute', defaultProperties: { functionName: 'app-function', runtime: 'python3.12', handler: 'app.handler', filename: 'lambda.zip', memorySize: 128, timeout: 30 } },
-      { type: 'ebs_volume', label: 'EBS Volume', icon: '💽', description: 'Block Storage', defaultProperties: { name: 'data-volume', size: 8, volumeType: 'gp3', availabilityZone: 'us-east-1a', encrypted: false } },
+      { type: 'ebs_volume', label: 'EBS Volume', icon: '💽', description: 'Block Storage', defaultProperties: { name: 'data-volume', size: 8, volumeType: 'gp3', encrypted: false } },
       { type: 'ecr_repository', label: 'ECR Repository', icon: '📦', description: 'Container Registry', defaultProperties: { name: 'app-images', imageTagMutability: 'MUTABLE', scanOnPush: false } },
       { type: 'ecs_cluster', label: 'ECS Cluster', icon: '🐙', description: 'Container Orchestration', defaultProperties: { name: 'app-cluster', containerInsights: false } },
       { type: 'efs', label: 'EFS File System', icon: '📂', description: 'Shared File Storage', defaultProperties: { name: 'shared-files', performanceMode: 'generalPurpose', throughputMode: 'bursting' } },
