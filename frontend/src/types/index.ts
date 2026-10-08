@@ -191,3 +191,12 @@ export interface DeploymentEvent {
   resource_count?: number | null;
   created_at: string | null;
 }
+
+// Connected cloud account (metadata only — credentials are never returned)
+export interface CloudAccount {
+  id: string;
+  provider: string;
+  name: string;
+  region: string;
+  created_at: string;
+}

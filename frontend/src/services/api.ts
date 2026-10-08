@@ -132,4 +132,17 @@ export const infrastructureApi = {
   summary: () => api.get('/api/infrastructure'),
 };
 
+// Connected cloud accounts (credentials are write-only; never returned)
+export const cloudApi = {
+  list: () => api.get('/api/cloud/accounts'),
+  create: (data: {
+    provider: string;
+    name: string;
+    region: string;
+    access_key_id: string;
+    secret_access_key: string;
+  }) => api.post('/api/cloud/accounts', data),
+  remove: (id: string) => api.delete(`/api/cloud/accounts/${id}`),
+};
+
 export default api;
