@@ -25,6 +25,8 @@ jobs:
           --health-retries 5
     env:
       DATABASE_URL: postgresql+asyncpg://cloudforge:cloudforge@localhost:5432/cloudforge
+      # Enables the DB-backed worker integration test.
+      CLOUDFORGE_TEST_DB: "1"
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
