@@ -60,5 +60,29 @@ services:
       - backend
     restart: unless-stopped
 
+  # Isolated Terraform worker: claims queued deployments and runs them, so
+  # Terraform never executes inside the API process. Shares the backend image,
+  # source mount, and deployment workspace with the API.
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: cloudforge-worker
+    command: ["python", "-m", "app.worker"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://cloudforge:cloudforge@postgres:5432/cloudforge
+      SECRET_KEY: cloudforge-dev-secret-change-in-production
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
+      CLOUDFORGE_TERRAFORM_TIMEOUT: "1800"
+    volumes:
+      - ./backend:/app
+      - ./deployments:/tmp/cloudforge-deployments
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   postgres_data:

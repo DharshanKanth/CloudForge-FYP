@@ -130,6 +130,10 @@ cloudforge/
 - Schema is owned by Alembic and applied automatically on startup
   (`app/database.run_migrations`). Pre-existing databases are adopted safely.
 - Both images define a `HEALTHCHECK` (backend `/api/health`, frontend `/`).
+- Deployments run in a **separate `worker` container**, not the API process:
+  the API enqueues jobs (`deployments`) and the worker runs Terraform, streaming
+  output into `deployment_logs`. The UI polls
+  `/api/projects/{id}/deployments/{job}/logs` for live logs.
 - The auth rate limiter is **in-process** (per uvicorn worker). It is fine for a
   single worker; with multiple workers or horizontally scaled replicas, put a
   shared limiter in front (e.g. nginx `limit_req`) instead of relying on it.

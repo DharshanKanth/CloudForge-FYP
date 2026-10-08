@@ -7,6 +7,7 @@ from app.models.project import Project
 from app.models.architecture import Architecture
 from app.models.user import User
 from app.models.deployment_event import DeploymentEvent
+from app.models.deployment import Deployment, DeploymentLog
 from app.schemas.terraform import TerraformGenerateResponse, TerraformValidationResult
 from app.core.deps import get_current_user
 from app.services.terraform_service import generate_terraform_files
@@ -14,7 +15,6 @@ from app.services.validation_service import validate_architecture
 from app.services.zip_service import create_terraform_zip
 from app.services import deployment_service, cloud_service, deployment_state, cloud_ops_service
 import json
-import subprocess
 import asyncio
 
 router = APIRouter()
@@ -114,6 +114,7 @@ async def plan_terraform(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """Enqueue a plan job. The isolated worker runs terraform and streams logs."""
     project = await _get_project(project_id, current_user.id, db)
     arch = await _get_architecture(project_id, db)
     validation = validate_architecture(arch.nodes, arch.edges)
@@ -122,21 +123,7 @@ async def plan_terraform(
             "message": "Fix validation errors before creating a deployment plan.",
             "issues": [issue.model_dump() for issue in validation.issues],
         })
-    files = _generate_or_400(project, arch)
-    env_extra = await cloud_service.aws_env_for_user(db, project.user_id)
-    result = await _run_deployment(deployment_service.plan, project_id, files, env_extra)
-    if result["status"] == "planned":
-        project.status = deployment_state.READY
-    else:
-        project.status = deployment_state.FAILED
-    await db.commit()
-    await _create_event(
-        db, project_id, "plan",
-        "succeeded" if result["status"] == "planned" else "failed",
-        result.get("output", ""),
-        deployment_service.parse_resource_count(result.get("output", ""), "plan_add"),
-    )
-    return result
+    return await _enqueue_deployment(db, project, "plan")
 
 
 @router.post("/{project_id}/terraform/apply")
@@ -145,23 +132,11 @@ async def apply_terraform(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """Enqueue an apply job (requires a successful plan first)."""
     project = await _get_project(project_id, current_user.id, db)
-    env_extra = await cloud_service.aws_env_for_user(db, project.user_id)
-    if project.status == deployment_state.READY:
-        project.status = deployment_state.DEPLOYING
-        await db.commit()
-    result = await _run_deployment(deployment_service.apply, project_id, env_extra)
-    project.status = (
-        deployment_state.DEPLOYED if result["status"] == "deployed" else deployment_state.FAILED
-    )
-    await db.commit()
-    await _create_event(
-        db, project_id, "apply",
-        "succeeded" if result["status"] == "deployed" else "failed",
-        result.get("output", ""),
-        deployment_service.parse_resource_count(result.get("output", ""), "apply_added"),
-    )
-    return result
+    if project.status != deployment_state.READY:
+        raise HTTPException(status_code=409, detail="Run a successful plan before deploying.")
+    return await _enqueue_deployment(db, project, "apply")
 
 
 @router.get("/{project_id}/terraform/infrastructure")
@@ -249,19 +224,12 @@ async def plan_destroy_terraform(
     # Trust the Terraform state file (the source of truth for what is actually
     # deployed) over the DB `status` column, which can drift out of sync —
     # e.g. after a Dashboard-driven redeploy or a partial teardown. Without
-    # this, a live stack behind a stale "saved" status is impossible to destroy.
+    # this, a live stack behind a stale status is impossible to destroy.
     live = deployment_service.infrastructure(project_id)
     if live.get("status") != "deployed":
         raise HTTPException(status_code=409, detail="Nothing is deployed for this project yet.")
-    env_extra = await cloud_service.aws_env_for_user(db, current_user.id)
-    result = await _run_deployment(deployment_service.plan_destroy, project_id, env_extra)
-    await _create_event(
-        db, project_id, "plan_destroy",
-        "succeeded" if result["status"] == "destroy_planned" else "failed",
-        result.get("output", ""),
-        deployment_service.parse_resource_count(result.get("output", ""), "plan_destroy"),
-    )
-    return result
+    project = await _get_project(project_id, current_user.id, db)
+    return await _enqueue_deployment(db, project, "plan_destroy")
 
 
 @router.post("/{project_id}/terraform/destroy")
@@ -270,22 +238,9 @@ async def destroy_terraform(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """Enqueue a destroy job (applies the previously reviewed destroy plan)."""
     project = await _get_project(project_id, current_user.id, db)
-    env_extra = await cloud_service.aws_env_for_user(db, project.user_id)
-    project.status = deployment_state.DESTROYING
-    await db.commit()
-    result = await _run_deployment(deployment_service.destroy, project_id, env_extra)
-    project.status = (
-        deployment_state.DESTROYED if result["status"] == "destroyed" else deployment_state.FAILED
-    )
-    await db.commit()
-    await _create_event(
-        db, project_id, "destroy",
-        "succeeded" if result["status"] == "destroyed" else "failed",
-        result.get("output", ""),
-        deployment_service.parse_resource_count(result.get("output", ""), "destroy_destroyed"),
-    )
-    return result
+    return await _enqueue_deployment(db, project, "destroy")
 
 
 @router.get("/{project_id}/deployment-events")
@@ -309,6 +264,58 @@ async def get_deployment_events(
     return [event.to_dict() for event in result.scalars().all()]
 
 
+@router.get("/{project_id}/deployments")
+async def list_deployments(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Recent deployment jobs for a project (newest first)."""
+    await _get_project(project_id, current_user.id, db)
+    result = await db.execute(
+        select(Deployment)
+        .where(Deployment.project_id == project_id)
+        .order_by(Deployment.created_at.desc())
+        .limit(50)
+    )
+    return [d.to_dict() for d in result.scalars().all()]
+
+
+@router.get("/{project_id}/deployments/{deployment_id}/logs")
+async def get_deployment_logs(
+    project_id: str,
+    deployment_id: str,
+    after: int = -1,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Poll a deployment's status and the log lines after ``after``."""
+    await _get_project(project_id, current_user.id, db)
+    deployment = (await db.execute(
+        select(Deployment).where(Deployment.id == deployment_id, Deployment.project_id == project_id)
+    )).scalar_one_or_none()
+    if not deployment:
+        raise HTTPException(status_code=404, detail="Deployment not found")
+    rows = (await db.execute(
+        select(DeploymentLog)
+        .where(DeploymentLog.deployment_id == deployment_id, DeploymentLog.seq > after)
+        .order_by(DeploymentLog.seq)
+    )).scalars().all()
+    return {
+        "deployment": deployment.to_dict(),
+        "logs": [{"seq": row.seq, "message": row.message} for row in rows],
+    }
+
+
+async def _enqueue_deployment(db: AsyncSession, project: Project, operation: str) -> dict:
+    """Create a queued deployment job for the worker to pick up."""
+    deployment = Deployment(project_id=project.id, operation=operation, status="queued")
+    db.add(deployment)
+    await db.commit()
+    await db.refresh(deployment)
+    return deployment.to_dict()
+
+
 def _generate_or_400(project: Project, arch: Architecture):
     """Generate Terraform, mapping configuration errors to 400 instead of 500."""
     try:
@@ -321,16 +328,6 @@ def _generate_or_400(project: Project, arch: Architecture):
         )
     except (ValueError, NotImplementedError) as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-
-
-async def _run_deployment(operation, project_id: str, *args):
-    import asyncio
-    try:
-        return await asyncio.to_thread(operation, project_id, *args)
-    except FileNotFoundError:
-        return {"status": "failed", "step": "terraform", "output": "Terraform CLI is not available."}
-    except subprocess.TimeoutExpired:
-        return {"status": "failed", "step": "terraform", "output": "Terraform command timed out."}
 
 
 async def _get_project(project_id: str, user_id: str, db: AsyncSession) -> Project:

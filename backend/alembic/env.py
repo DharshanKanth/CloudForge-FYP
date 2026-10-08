@@ -16,7 +16,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=False so running migrations never silences the
+    # application's (or worker's) loggers.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # Import Base and every model so their tables are registered on the metadata
 # (needed for autogenerate and for a correct target_metadata).

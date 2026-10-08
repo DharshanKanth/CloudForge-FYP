@@ -9,6 +9,7 @@ from app.database import get_db
 from app.models.project import Project
 from app.models.architecture import Architecture
 from app.models.deployment_event import DeploymentEvent
+from app.models.deployment import Deployment, DeploymentLog
 from app.models.user import User
 from app.schemas.project import ProjectCreate, ProjectUpdate, ProjectResponse
 from app.core.deps import get_current_user
@@ -123,6 +124,15 @@ async def delete_project(
     await db.execute(
         delete(DeploymentEvent).where(DeploymentEvent.project_id == project.id)
     )
+    # Deployment jobs + their log lines also reference the project.
+    await db.execute(
+        delete(DeploymentLog).where(
+            DeploymentLog.deployment_id.in_(
+                select(Deployment.id).where(Deployment.project_id == project.id)
+            )
+        )
+    )
+    await db.execute(delete(Deployment).where(Deployment.project_id == project.id))
     # Drop the local Terraform workspace (state + cached providers). Resources
     # already deployed keep running in the cloud, so destroy them first — this
     # only removes CloudForge's ability to track them.

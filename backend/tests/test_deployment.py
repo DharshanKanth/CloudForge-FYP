@@ -13,7 +13,7 @@ PROJECT_ID = "11111111-2222-3333-4444-555555555555"
 
 
 def _fake_run(returncode=0, out="ok"):
-    def runner(cmd, cwd, env_extra=None):
+    def runner(cmd, cwd, env_extra=None, on_line=None):
         return subprocess.CompletedProcess(cmd, returncode, out, "")
     return runner
 
@@ -22,7 +22,7 @@ def test_plan_invokes_fmt_and_binds_hash(tmp_path, monkeypatch):
     monkeypatch.setattr(ds, "DEPLOYMENT_ROOT", tmp_path)
     calls = []
 
-    def runner(cmd, cwd, env_extra=None):
+    def runner(cmd, cwd, env_extra=None, on_line=None):
         calls.append(cmd[1])
         return subprocess.CompletedProcess(cmd, 0, "ok", "")
 
@@ -66,3 +66,19 @@ def test_apply_requires_a_plan(tmp_path, monkeypatch):
     result = ds.apply(PROJECT_ID)  # no workspace / no tfplan
     assert result["status"] == "failed"
     assert "plan" in result["output"].lower()
+
+
+def test_run_streams_output_lines(tmp_path):
+    """`_run` must invoke the callback per line (used for live logs)."""
+    import sys
+
+    lines: list[str] = []
+    result = ds._run(
+        [sys.executable, "-c", "print('alpha'); print('beta')"],
+        tmp_path,
+        None,
+        lines.append,
+    )
+    assert result.returncode == 0
+    assert "alpha" in lines and "beta" in lines
+    assert "alpha" in result.stdout
