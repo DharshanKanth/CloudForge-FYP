@@ -181,4 +181,10 @@ export const aiApi = {
     api.post('/api/ai/settings/test', data),
 };
 
+// Deterministic architecture-diagram import (no AI involved)
+export const diagramApi = {
+  import: (filename: string, content: string) =>
+    api.post('/api/diagram/import', { filename, content }),
+};
+
 export default api;

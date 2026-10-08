@@ -9,6 +9,9 @@ from app.schemas.ai import (
     AIArchitectRequest, AIArchitectResponse, AIProjectRequest,
     AITroubleshootRequest, AITextResponse, AIStatusResponse,
 )
+from app.schemas.diagram import (
+    DiagramImportRequest, DiagramImportResponse, UnrecognizedElement,
+)
 
 __all__ = [
     "UserCreate", "UserLogin", "UserResponse", "TokenResponse",
@@ -18,4 +21,5 @@ __all__ = [
     "CloudAccountCreate", "CloudAccountResponse",
     "AIArchitectRequest", "AIArchitectResponse", "AIProjectRequest",
     "AITroubleshootRequest", "AITextResponse", "AIStatusResponse",
+    "DiagramImportRequest", "DiagramImportResponse", "UnrecognizedElement",
 ]

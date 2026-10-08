@@ -28,6 +28,7 @@ import {
   ArrowLeft,
   LayoutTemplate,
   Sparkles,
+  Upload,
 } from 'lucide-react';
 
 import { ResourceNodeComponent } from '../features/builder/ResourceNode';
@@ -48,6 +49,7 @@ import { ConfigPanel } from '../features/builder/ConfigPanel';
 import { ValidationPanel } from '../features/builder/ValidationPanel';
 import { TemplateModal } from '../features/builder/TemplateModal';
 import { AiArchitectModal } from '../features/builder/AiArchitectModal';
+import { DiagramImportModal } from '../features/builder/DiagramImportModal';
 import { InsightsModal } from '../features/builder/InsightsModal';
 import { architectureApi, projectsApi, aiApi } from '../services/api';
 import type { ValidationResult, Project } from '../types';
@@ -210,6 +212,7 @@ export default function Builder() {
   const [fixing, setFixing] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showAi, setShowAi] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [showInsights, setShowInsights] = useState(false);
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -958,6 +961,14 @@ export default function Builder() {
             Templates
           </button>
           <button
+            onClick={() => setShowImport(true)}
+            className="btn-ghost text-xs"
+            title="Import a draw.io / Mermaid / JSON diagram"
+          >
+            <Upload className="w-3.5 h-3.5" />
+            Import
+          </button>
+          <button
             onClick={() => setShowAi(true)}
             className="btn-ghost text-xs"
             title="AI architecture assistant (advisory)"
@@ -1094,6 +1105,13 @@ export default function Builder() {
         <AiArchitectModal
           onApply={handleTemplateSelect}
           onClose={() => setShowAi(false)}
+        />
+      )}
+
+      {showImport && (
+        <DiagramImportModal
+          onApply={handleTemplateSelect}
+          onClose={() => setShowImport(false)}
         />
       )}
 

@@ -21,7 +21,8 @@
 | 🧭 **Lifecycle state machine** — draft → validated → generated → ready → deploying → deployed → destroying → destroyed/failed | ✅ |
 | ⏯ **EC2 stop / start** via the provider API (not destroy) | ✅ boto3 |
 | 💰 **Cost estimation** + 🔒 **security analysis** | ✅ Deterministic |
-| 🤖 **AI assistant** (advisory; local Ollama or hosted) | ✅ Never executes infra |
+| 🤖 **AI assistant** (advisory; local Ollama or hosted, per-user keys) | ✅ Never executes infra |
+| 📥 **Diagram import** — draw.io / Mermaid / JSON → canvas proposal | ✅ Deterministic |
 | 🧪 **Tests + CI** — pytest, vitest, Alembic drift check | ✅ GitHub Actions |
 
 ---
@@ -103,6 +104,14 @@ App opens at: **http://localhost:5173**
 5. **Validate** — errors block; warnings are advisory.
 6. **Generate Terraform** — inspect `main.tf` / `variables.tf` / `outputs.tf` /
    `providers.tf` in Monaco, then **Download ZIP**.
+
+### Part A2 — Import an existing diagram (draw.io / Mermaid / JSON)
+Builder toolbar → **Import** → drop a **draw.io** (`.drawio`/`.xml`) file, a
+**Mermaid** flowchart (`.mmd`), or CloudForge **JSON**. CloudForge maps AWS
+icons/labels to resources **deterministically** (no AI), fills Free-Tier
+defaults, reports anything it could not recognise, runs the validator, and shows
+a preview — click **Apply to canvas**, then **Validate** as usual. VPC/subnet
+containment is derived from draw.io nesting and Mermaid `subgraph` blocks.
 
 ### Part B — Plan → Deploy → Logs (needs AWS)
 7. **Plan** — enqueues a job; the **isolated worker** runs `terraform init/validate/plan`
