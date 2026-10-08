@@ -706,28 +706,40 @@ def _detect_cycles(nodes: List[Dict], edges: List[Dict]) -> List[ValidationIssue
 
     WHITE, GRAY, BLACK = 0, 1, 2
     color: Dict[str, int] = {nid: WHITE for nid in node_ids}
+    path: List[str] = []
+    on_path: Dict[str, int] = {}
+    reported: Set[frozenset] = set()
 
-    def _dfs(u: str, path: List[str]) -> bool:
+    def _dfs(u: str) -> bool:
         color[u] = GRAY
+        on_path[u] = len(path)
         path.append(u)
+        found = False
         for v in adj.get(u, []):
             if color[v] == GRAY:
-                cycle_start = path.index(v)
-                cycle = path[cycle_start:] + [v]
-                issues.append(ValidationIssue(
-                    level="warning",
-                    message=f"Circular dependency detected: {' → '.join(cycle)}",
-                ))
-                return True
-            if color[v] == WHITE and _dfs(v, path):
-                return True
+                # v is an ancestor on the current path.
+                start = on_path.get(v, 0)
+                cycle = path[start:] + [v]
+                key = frozenset(cycle)
+                if key not in reported:
+                    reported.add(key)
+                    issues.append(ValidationIssue(
+                        level="warning",
+                        message=f"Circular dependency detected: {' -> '.join(cycle)}",
+                    ))
+                found = True
+            elif color[v] == WHITE and _dfs(v):
+                found = True
+        # Always unwind, even after finding a cycle, so no node is left GRAY
+        # and a later traversal can never index a node that is not on its path.
         path.pop()
+        on_path.pop(u, None)
         color[u] = BLACK
-        return False
+        return found
 
     for nid in node_ids:
         if color[nid] == WHITE:
-            _dfs(nid, [])
+            _dfs(nid)
 
     return issues
 

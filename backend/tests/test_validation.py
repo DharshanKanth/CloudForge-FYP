@@ -254,6 +254,34 @@ def test_no_cycle_in_dag():
     assert not issues
 
 
+def test_cycle_detection_multiple_components_does_not_raise():
+    """Regression: a cycle plus another component used to raise
+    ValueError ('<id>' is not in list) because the DFS left nodes GRAY after
+    finding a cycle, so a later traversal indexed a node not on its path."""
+    nodes = [
+        {"id": "a", "type": "vpc", "data": {"resourceType": "vpc", "properties": {"name": "a", "cidr": "10.0.0.0/16"}}},
+        {"id": "b", "type": "subnet", "data": {"resourceType": "subnet", "properties": {"name": "b", "cidr": "10.0.1.0/24"}}},
+        {"id": "c", "type": "ec2", "data": {"resourceType": "ec2", "properties": {"name": "web", "instanceType": "t3.micro"}}},
+    ]
+    edges = [
+        {"source": "a", "target": "b"},
+        {"source": "b", "target": "a"},
+        {"source": "c", "target": "a"},
+    ]
+    issues = _detect_cycles(nodes, edges)
+    assert any("Circular dependency" in i.message for i in issues)
+
+
+def test_validate_architecture_with_cycle_does_not_crash():
+    nodes = [
+        {"id": "a", "type": "vpc", "data": {"resourceType": "vpc", "properties": {"name": "a", "cidr": "10.0.0.0/16"}}},
+        {"id": "b", "type": "subnet", "data": {"resourceType": "subnet", "properties": {"name": "b", "cidr": "10.0.1.0/24"}}},
+    ]
+    edges = [{"source": "a", "target": "b"}, {"source": "b", "target": "a"}]
+    res = validate_architecture(nodes, edges)  # must not raise
+    assert any("Circular dependency" in i.message for i in res.issues)
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # Structural / topology checks
 # ════════════════════════════════════════════════════════════════════════════

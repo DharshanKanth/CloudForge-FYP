@@ -10,6 +10,7 @@ from app.models.project import Project
 from app.models.architecture import Architecture
 from app.models.deployment_event import DeploymentEvent
 from app.models.deployment import Deployment, DeploymentLog
+from app.models.ai_recommendation import AIRecommendation
 from app.models.user import User
 from app.schemas.project import ProjectCreate, ProjectUpdate, ProjectResponse
 from app.core.deps import get_current_user
@@ -133,6 +134,8 @@ async def delete_project(
         )
     )
     await db.execute(delete(Deployment).where(Deployment.project_id == project.id))
+    # AI recommendations may reference the project too.
+    await db.execute(delete(AIRecommendation).where(AIRecommendation.project_id == project.id))
     # Drop the local Terraform workspace (state + cached providers). Resources
     # already deployed keep running in the cloud, so destroy them first — this
     # only removes CloudForge's ability to track them.
