@@ -46,7 +46,7 @@ def test_recommend_parses_structured_response(monkeypatch):
         "rationale": "A VPC with one subnet.",
     }
 
-    async def fake_chat(messages, response_json=True):
+    async def fake_chat(messages, response_json=True, schema=None):
         return json.dumps(payload)
 
     monkeypatch.setenv("AI_API_KEY", "sk-test")
@@ -70,10 +70,23 @@ def test_recommend_raises_when_unconfigured():
 
 
 def test_recommend_rejects_non_json(monkeypatch):
-    async def fake_chat(messages, response_json=True):
+    async def fake_chat(messages, response_json=True, schema=None):
         return "not json"
 
     monkeypatch.setenv("AI_API_KEY", "sk-test")
     monkeypatch.setattr(ai_service, "_chat", fake_chat)
     with pytest.raises(ValueError):
         asyncio.run(ai_service.recommend_architecture("x"))
+
+
+def test_extract_json_handles_fences_and_prose():
+    assert ai_service._extract_json('```json\n{"a": 1}\n```') == {"a": 1}
+    assert ai_service._extract_json('Here you go: {"nodes": [], "edges": []} done') == {
+        "nodes": [],
+        "edges": [],
+    }
+
+
+def test_extract_json_rejects_garbage():
+    with pytest.raises(ValueError):
+        ai_service._extract_json("no json at all")

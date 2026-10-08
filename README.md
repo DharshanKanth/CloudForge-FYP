@@ -139,6 +139,11 @@ cloudforge/
   `AI_BASE_URL` (local). It never runs Terraform and its suggestions are gated
   by the deterministic validator; unconfigured endpoints return
   `configured: false` rather than fabricated output.
+  - **docker-compose ships a local Ollama** (`ollama` service, model
+    `qwen2.5:3b`) and points the backend at it, so the assistant works with no
+    API key. Pull the model once: `docker compose exec ollama ollama pull qwen2.5:3b`.
+    Local CPU models are slower and less reliable than a hosted key; override
+    `AI_MODEL` to use a larger model.
 - The auth rate limiter is **in-process** (per uvicorn worker). It is fine for a
   single worker; with multiple workers or horizontally scaled replicas, put a
   shared limiter in front (e.g. nginx `limit_req`) instead of relying on it.

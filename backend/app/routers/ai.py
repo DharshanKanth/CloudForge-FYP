@@ -83,6 +83,8 @@ async def architect(
         arch = await ai_service.recommend_architecture(req.prompt)
     except ai_service.AIUnavailable as exc:
         return AIArchitectResponse(configured=False, message=str(exc))
+    except ai_service.AIProviderError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
     except (ValueError, ValidationError) as exc:
         raise HTTPException(status_code=502, detail=f"AI returned an unusable response: {exc}")
 
@@ -118,6 +120,8 @@ async def explain(
         text = await ai_service.explain_terraform(files)
     except ai_service.AIUnavailable as exc:
         return AITextResponse(configured=False, message=str(exc))
+    except ai_service.AIProviderError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
     db.add(AIRecommendation(
         user_id=current_user.id, project_id=project.id, kind="explain",
         prompt=project.name, response=text[:8000], provider=ai_service.status()["provider"],
@@ -141,6 +145,8 @@ async def troubleshoot(
         text = await ai_service.troubleshoot(req.error, files)
     except ai_service.AIUnavailable as exc:
         return AITextResponse(configured=False, message=str(exc))
+    except ai_service.AIProviderError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
     db.add(AIRecommendation(
         user_id=current_user.id, project_id=project.id, kind="troubleshoot",
         prompt=req.error[:2000], response=text[:8000], provider=ai_service.status()["provider"],

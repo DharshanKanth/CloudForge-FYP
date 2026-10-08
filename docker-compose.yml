@@ -30,6 +30,11 @@ services:
       # Seed the demo account + project on startup (idempotent). Set to "false"
       # for a clean database.
       CLOUDFORGE_SEED_DEMO: "true"
+      # Local Ollama provider for the advisory AI layer (no API key).
+      AI_PROVIDER: ollama
+      AI_BASE_URL: http://ollama:11434/v1
+      AI_MODEL: ${AI_MODEL:-qwen2.5:3b}
+      AI_MAX_TOKENS: ${AI_MAX_TOKENS:-900}
       # AWS credentials for terraform plan/apply/destroy.
       # Values come from a local .env file (git-ignored). See .env.example.
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
@@ -88,5 +93,16 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Local model server for the advisory AI layer (no API key required).
+  ollama:
+    image: ollama/ollama:latest
+    container_name: cloudforge-ollama
+    volumes:
+      - ollama_models:/root/.ollama
+    ports:
+      - "11434:11434"
+    restart: unless-stopped
+
 volumes:
   postgres_data:
+  ollama_models:
