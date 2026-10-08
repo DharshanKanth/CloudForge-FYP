@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Editor from '@monaco-editor/react';
-import { ArrowLeft, Download, Copy, RefreshCw, FileText, Check, Loader2, Cloud, AlertCircle, Play, Rocket, Trash2, Undo2, Server, History, AlertTriangle, Info, ChevronDown, ChevronUp } from 'lucide-react';
-import { terraformApi, projectsApi } from '../services/api';
+import { ArrowLeft, Download, Copy, RefreshCw, FileText, Check, Loader2, Cloud, AlertCircle, Play, Rocket, Trash2, Undo2, Server, History, AlertTriangle, Info, ChevronDown, ChevronUp, Sparkles, Wrench, X } from 'lucide-react';
+import { terraformApi, projectsApi, aiApi } from '../services/api';
 import InfraResourceGrid, { categoryMeta } from '../components/InfraResourceGrid';
 import DeploymentHistory from '../components/DeploymentHistory';
 import type { TerraformFile, Project, Infrastructure, DeploymentEvent } from '../types';
@@ -83,13 +83,18 @@ export default function TerraformViewer() {
   const [deploymentStatus, setDeploymentStatus] = useState<string>('');
   const [deploymentOutput, setDeploymentOutput] = useState('');
   const [deploying, setDeploying] = useState(false);
-  const [view, setView] = useState<'code' | 'infra' | 'history'>('code');
+  const [view, setView] = useState<'code' | 'infra' | 'history' | 'runs'>('code');
   const [infra, setInfra] = useState<Infrastructure | null>(null);
   const [events, setEvents] = useState<DeploymentEvent[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [showValidation, setShowValidation] = useState(true);
   const [destroyPlanLocal, setDestroyPlanLocal] = useState(false);
   const [busyAddress, setBusyAddress] = useState<string | null>(null);
+  const [deployments, setDeployments] = useState<any[]>([]);
+  const [selectedDeployment, setSelectedDeployment] = useState<any>(null);
+  const [runLogs, setRunLogs] = useState<any[]>([]);
+  const [runsLoading, setRunsLoading] = useState(false);
+  const [aiText, setAiText] = useState<{ title: string; body: string } | null>(null);
 
   useEffect(() => {
     if (!projectId) return;
@@ -148,6 +153,12 @@ export default function TerraformViewer() {
     if (view !== 'history') return;
     const timer = setInterval(loadEvents, 10000);
     return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, projectId]);
+
+  // Load the deployment-run list when the Runs tab is opened.
+  useEffect(() => {
+    if (view === 'runs') loadDeployments();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, projectId]);
 
@@ -324,6 +335,64 @@ export default function TerraformViewer() {
     }
   };
 
+  // ── Deployment runs (jobs) + their streamed logs ────────────────────
+  const loadDeployments = async () => {
+    if (!projectId) return;
+    setRunsLoading(true);
+    try {
+      const res = await terraformApi.deployments(projectId);
+      setDeployments(res.data);
+    } catch {
+      // ignore
+    } finally {
+      setRunsLoading(false);
+    }
+  };
+
+  const openDeployment = async (dep: any) => {
+    if (!projectId) return;
+    setSelectedDeployment(dep);
+    try {
+      const res = await terraformApi.deploymentLogs(projectId, dep.id, -1);
+      setRunLogs(res.data.logs || []);
+    } catch {
+      setRunLogs([]);
+    }
+  };
+
+  const runStatusClass = (status: string) =>
+    status === 'succeeded'
+      ? 'text-emerald-400'
+      : status === 'failed'
+        ? 'text-red-400'
+        : status === 'running'
+          ? 'text-blue-400'
+          : 'text-dark-500';
+
+  // ── Advisory AI actions ─────────────────────────────────────────────
+  const runAi = async (kind: 'explain' | 'troubleshoot') => {
+    if (!projectId) return;
+    const toastId = toast.loading('Asking the AI…');
+    try {
+      const res =
+        kind === 'explain'
+          ? await aiApi.explain(projectId)
+          : await aiApi.troubleshoot(projectId, deploymentOutput || 'Unknown error');
+      toast.dismiss(toastId);
+      if (!res.data.configured) {
+        toast.error(res.data.message || 'AI is not configured');
+        return;
+      }
+      setAiText({
+        title: kind === 'explain' ? 'Terraform explained (AI)' : 'Troubleshooting (AI)',
+        body: res.data.text || '',
+      });
+    } catch (err: any) {
+      toast.dismiss(toastId);
+      toast.error(err.response?.data?.detail || 'AI request failed');
+    }
+  };
+
   const handleClear = async (force = false) => {
     if (!projectId) return;
     if (!force && !confirm('Clear the local Terraform workspace? This removes the local state file and any cached plans.')) return;
@@ -435,19 +504,26 @@ export default function TerraformViewer() {
           </div>
           {deploymentOutput && <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap text-[10px] text-dark-300 font-mono">{deploymentOutput}</pre>}
           {deploymentStatus === 'failed' && (
-            <div className="mt-1 text-[10px] text-red-300">
-              If this error is from stale state (e.g. "couldn't find resource"), click <span className="underline font-medium">Clear</span> above to reset the workspace, then re-run Plan.
+            <div className="mt-1 flex items-center gap-2 text-[10px] text-red-300">
+              <span>
+                If this error is from stale state (e.g. "couldn't find resource"), click{' '}
+                <span className="underline font-medium">Clear</span> above to reset the workspace, then re-run Plan.
+              </span>
+              <button onClick={() => runAi('troubleshoot')} className="ml-auto btn-secondary text-[10px] flex-shrink-0" title="Explain this error with AI">
+                <Wrench className="w-3 h-3" />Troubleshoot with AI
+              </button>
             </div>
           )}
         </div>
       )}
       <div className="flex flex-1 overflow-hidden">
         <aside className="w-52 bg-dark-900 border-r border-dark-800 flex flex-col flex-shrink-0">
-          <div className="grid grid-cols-3 border-b border-dark-800 flex-shrink-0">
+          <div className="grid grid-cols-4 border-b border-dark-800 flex-shrink-0">
             <button onClick={() => setView('code')} className={`py-2.5 text-[11px] font-semibold transition-colors ${view === 'code' ? 'text-primary-300 bg-dark-800/60 border-b-2 border-primary-500' : 'text-dark-500 hover:text-dark-300'}`}><FileText className="w-3 h-3 inline mr-1 -mt-0.5" />Code</button>
             <button onClick={() => { setView('infra'); loadInfra(); }} className={`py-2.5 text-[11px] font-semibold transition-colors ${view === 'infra' ? 'text-primary-300 bg-dark-800/60 border-b-2 border-primary-500' : 'text-dark-500 hover:text-dark-300'}`}>
               Infra{infra?.status === 'deployed' && <span className="ml-1 text-emerald-400">●{infra.resources.length}</span>}
             </button>
+            <button onClick={() => setView('runs')} className={`py-2.5 text-[11px] font-semibold transition-colors ${view === 'runs' ? 'text-primary-300 bg-dark-800/60 border-b-2 border-primary-500' : 'text-dark-500 hover:text-dark-300'}`}><Rocket className="w-3 h-3 inline mr-1 -mt-0.5" />Runs</button>
             <button onClick={() => setView('history')} className={`py-2.5 text-[11px] font-semibold transition-colors ${view === 'history' ? 'text-primary-300 bg-dark-800/60 border-b-2 border-primary-500' : 'text-dark-500 hover:text-dark-300'}`}><History className="w-3 h-3 inline mr-1 -mt-0.5" />History</button>
           </div>
           {view === 'code' ? (
@@ -468,7 +544,7 @@ export default function TerraformViewer() {
                 )}
               </div>
             </>
-          ) : (
+          ) : view === 'infra' ? (
             <div className="flex-1 py-2 overflow-y-auto">
               {infra?.status === 'deployed' ? (
                 ['compute', 'network', 'data'].map((cat) => {
@@ -491,10 +567,49 @@ export default function TerraformViewer() {
                 <div className="px-4 py-6 text-center"><Server className="w-7 h-7 text-dark-700 mx-auto mb-2" /><p className="text-[10px] text-dark-500">Nothing deployed yet</p></div>
               )}
             </div>
-          )}
+          ) : null}
         </aside>
         <div className="flex-1 flex flex-col overflow-hidden">
-          {view === 'history' ? (
+          {view === 'runs' ? (
+            <div className="flex-1 overflow-hidden flex">
+              <div className="w-72 border-r border-dark-800 overflow-y-auto flex-shrink-0">
+                {runsLoading && <p className="p-4 text-xs text-dark-500">Loading…</p>}
+                {!runsLoading && deployments.length === 0 && (
+                  <p className="p-4 text-xs text-dark-500">No deployments yet. Run Plan or Deploy.</p>
+                )}
+                {deployments.map((d) => (
+                  <button
+                    key={d.id}
+                    onClick={() => openDeployment(d)}
+                    className={`w-full text-left px-4 py-2.5 border-b border-dark-800 transition-colors ${selectedDeployment?.id === d.id ? 'bg-dark-800' : 'hover:bg-dark-800/50'}`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium text-dark-200 capitalize">{d.operation.replace('_', ' ')}</span>
+                      <span className={`ml-auto text-[10px] font-semibold ${runStatusClass(d.status)}`}>{d.status}</span>
+                    </div>
+                    <div className="text-[10px] text-dark-500 mt-0.5 truncate">
+                      {d.created_at ? new Date(d.created_at).toLocaleString() : ''}
+                      {d.resource_count != null ? ` · ${d.resource_count} resources` : ''}
+                    </div>
+                  </button>
+                ))}
+              </div>
+              <div className="flex-1 overflow-y-auto p-4">
+                {selectedDeployment ? (
+                  <>
+                    <div className="flex items-center gap-3 mb-3">
+                      <span className="text-sm font-semibold text-dark-100 capitalize">{selectedDeployment.operation.replace('_', ' ')}</span>
+                      <span className={`text-[10px] font-semibold ${runStatusClass(selectedDeployment.status)}`}>{selectedDeployment.status}</span>
+                      <button onClick={() => openDeployment(selectedDeployment)} className="ml-auto btn-secondary text-xs"><RefreshCw className="w-3.5 h-3.5" />Reload logs</button>
+                    </div>
+                    <pre className="text-[11px] font-mono text-dark-300 bg-dark-900 border border-dark-800 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap">{runLogs.length ? runLogs.map((l) => l.message).join('\n') : '(no logs)'}</pre>
+                  </>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-xs text-dark-500">Select a deployment to view its logs.</div>
+                )}
+              </div>
+            </div>
+          ) : view === 'history' ? (
             <div className="flex-1 overflow-y-auto p-4">
               <DeploymentHistory events={events} loading={historyLoading} onRefresh={loadEvents} />
             </div>
@@ -528,7 +643,8 @@ export default function TerraformViewer() {
                 <div className="flex items-center gap-2 px-4 py-2 bg-dark-900 border-b border-dark-800">
                   <span className="text-sm">{fileIcons[activeFile] || '📄'}</span>
                   <span className="text-xs font-mono text-dark-300 font-medium">{activeFile}</span>
-                  <span className="ml-auto text-[10px] text-dark-600">{activeContent.split('\n').length} lines · HCL (Terraform)</span>
+                  <button onClick={() => runAi('explain')} className="ml-auto btn-ghost text-[11px]" title="Explain this Terraform with AI"><Sparkles className="w-3.5 h-3.5" />Explain</button>
+                  <span className="text-[10px] text-dark-600">{activeContent.split('\n').length} lines · HCL (Terraform)</span>
                 </div>
               )}
               <div className="flex-1">
@@ -538,6 +654,19 @@ export default function TerraformViewer() {
           )}
         </div>
       </div>
+
+      {aiText && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setAiText(null)}>
+          <div className="card w-full max-w-2xl max-h-[80vh] flex flex-col p-5" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-2 mb-3">
+              <Sparkles className="w-4 h-4 text-primary-400" />
+              <h3 className="text-sm font-semibold text-dark-100">{aiText.title}</h3>
+              <button onClick={() => setAiText(null)} className="ml-auto text-dark-500 hover:text-dark-200"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto whitespace-pre-wrap text-xs text-dark-300 leading-relaxed">{aiText.body}</div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
