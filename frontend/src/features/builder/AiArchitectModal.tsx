@@ -59,8 +59,8 @@ export function AiArchitectModal({ onApply, onClose }: AiArchitectModalProps) {
           </button>
         </div>
         <p className="text-xs text-dark-500 mb-3">
-          Describe what you want. The AI proposes a design; CloudForge validates it and nothing is
-          deployed until you approve.
+          Describe what you want. The AI proposes a design; CloudForge validates and
+          auto-repairs common issues. Nothing is deployed until you approve.
         </p>
         <textarea
           value={prompt}

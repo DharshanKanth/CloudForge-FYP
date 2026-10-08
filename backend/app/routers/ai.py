@@ -100,6 +100,10 @@ async def architect(
         raise HTTPException(status_code=502, detail=f"AI returned an unusable response: {exc}")
 
     nodes, edges = ai_service.to_canvas(arch)
+    # Deterministically clean up the model's draft (missing required fields,
+    # orphan resources, invalid/duplicate edges) before showing it, so the
+    # suggestion is valid or as close as possible.
+    nodes, edges = auto_fix(nodes, edges)
     validation = validate_architecture(nodes, edges)
 
     db.add(AIRecommendation(
