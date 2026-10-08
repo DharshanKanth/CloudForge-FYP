@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Layout } from '../components/Layout';
-import { Cloud, Plus, Trash2, Loader2, ShieldCheck } from 'lucide-react';
-import { cloudApi } from '../services/api';
+import { Cloud, Plus, Trash2, Loader2, ShieldCheck, Sparkles } from 'lucide-react';
+import { cloudApi, aiApi } from '../services/api';
 import type { CloudAccount } from '../types';
 import toast from 'react-hot-toast';
 
@@ -23,6 +23,7 @@ export default function Settings() {
   const [region, setRegion] = useState('us-east-1');
   const [accessKeyId, setAccessKeyId] = useState('');
   const [secretAccessKey, setSecretAccessKey] = useState('');
+  const [ai, setAi] = useState<any>(null);
 
   const load = async () => {
     try {
@@ -37,6 +38,10 @@ export default function Settings() {
 
   useEffect(() => {
     load();
+    aiApi
+      .status()
+      .then((r) => setAi(r.data))
+      .catch(() => {});
   }, []);
 
   const handleSubmit = async (e: FormEvent) => {
@@ -180,6 +185,35 @@ export default function Settings() {
               ))}
             </ul>
           )}
+        </section>
+
+        <section className="card p-5">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-dark-800 flex items-center justify-center flex-shrink-0">
+              <Sparkles className="w-5 h-5 text-primary-400" />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-sm font-semibold text-dark-100">AI Assistant</h3>
+              <p className="text-xs text-dark-500 mt-0.5">
+                Advisory only — the assistant proposes designs and explanations, but the validator
+                gates everything and it never deploys infrastructure.
+              </p>
+              {ai &&
+                (ai.configured ? (
+                  <p className="text-xs text-emerald-400 mt-2">
+                    Configured — provider: <span className="font-mono">{ai.provider}</span>, model:{' '}
+                    <span className="font-mono">{ai.model}</span>
+                  </p>
+                ) : (
+                  <p className="text-xs text-dark-500 mt-2">
+                    Not configured. Set <span className="font-mono">AI_PROVIDER</span> and{' '}
+                    <span className="font-mono">AI_API_KEY</span> (or{' '}
+                    <span className="font-mono">AI_BASE_URL</span> for a local model such as Ollama)
+                    on the backend to enable it.
+                  </p>
+                ))}
+            </div>
+          </div>
         </section>
       </div>
     </Layout>

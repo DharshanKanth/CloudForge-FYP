@@ -150,4 +150,14 @@ export const cloudApi = {
   remove: (id: string) => api.delete(`/api/cloud/accounts/${id}`),
 };
 
+// Advisory AI assistant (provider-agnostic; disabled unless configured)
+export const aiApi = {
+  status: () => api.get('/api/ai/status'),
+  architect: (prompt: string, projectId?: string) =>
+    api.post('/api/ai/architect', { prompt, project_id: projectId }),
+  explain: (projectId: string) => api.post('/api/ai/explain', { project_id: projectId }),
+  troubleshoot: (projectId: string, error: string) =>
+    api.post('/api/ai/troubleshoot', { project_id: projectId, error }),
+};
+
 export default api;

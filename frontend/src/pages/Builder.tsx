@@ -27,6 +27,7 @@ import {
   Loader2,
   ArrowLeft,
   LayoutTemplate,
+  Sparkles,
 } from 'lucide-react';
 
 import { ResourceNodeComponent } from '../features/builder/ResourceNode';
@@ -46,6 +47,7 @@ import { Breadcrumb } from '../features/builder/Breadcrumb';
 import { ConfigPanel } from '../features/builder/ConfigPanel';
 import { ValidationPanel } from '../features/builder/ValidationPanel';
 import { TemplateModal } from '../features/builder/TemplateModal';
+import { AiArchitectModal } from '../features/builder/AiArchitectModal';
 import { architectureApi, projectsApi } from '../services/api';
 import type { ValidationResult, Project } from '../types';
 import toast from 'react-hot-toast';
@@ -205,6 +207,7 @@ export default function Builder() {
   const [saving, setSaving] = useState(false);
   const [validating, setValidating] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
+  const [showAi, setShowAi] = useState(false);
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null);
@@ -917,6 +920,14 @@ export default function Builder() {
             Templates
           </button>
           <button
+            onClick={() => setShowAi(true)}
+            className="btn-ghost text-xs"
+            title="AI architecture assistant (advisory)"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            AI
+          </button>
+          <button
             onClick={handleValidate}
             disabled={validating || saving}
             className="btn-secondary text-xs"
@@ -1035,6 +1046,13 @@ export default function Builder() {
         <TemplateModal
           onSelect={handleTemplateSelect}
           onClose={() => setShowTemplates(false)}
+        />
+      )}
+
+      {showAi && (
+        <AiArchitectModal
+          onApply={handleTemplateSelect}
+          onClose={() => setShowAi(false)}
         />
       )}
     </div>
