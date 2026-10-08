@@ -126,6 +126,9 @@ export const terraformApi = {
     }),
   power: (projectId: string, address: string, action: 'start' | 'stop') =>
     api.post(`/api/projects/${projectId}/terraform/resources/${encodeURIComponent(address)}/${action}`),
+  deployments: (projectId: string) => api.get(`/api/projects/${projectId}/deployments`),
+  deploymentLogs: (projectId: string, deploymentId: string, after: number) =>
+    api.get(`/api/projects/${projectId}/deployments/${deploymentId}/logs`, { params: { after } }),
   downloadUrl: (projectId: string) => `${API_BASE_URL || ''}/api/projects/${projectId}/terraform/download`,
 };
 

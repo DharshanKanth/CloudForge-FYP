@@ -203,3 +203,22 @@ export interface CloudAccount {
   region: string;
   created_at: string;
 }
+
+// Async deployment job run by the isolated Terraform worker
+export interface Deployment {
+  id: string;
+  project_id: string;
+  operation: 'plan' | 'apply' | 'plan_destroy' | 'destroy';
+  status: 'queued' | 'running' | 'succeeded' | 'failed';
+  step?: string | null;
+  resource_count?: number | null;
+  error?: string | null;
+  created_at: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+}
+
+export interface DeploymentLogLine {
+  seq: number;
+  message: string;
+}

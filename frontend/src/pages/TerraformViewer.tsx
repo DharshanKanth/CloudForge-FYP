@@ -214,134 +214,94 @@ export default function TerraformViewer() {
     }
   };
 
-  const handlePlan = async () => {
+  const refreshProject = async () => {
     if (!projectId) return;
-    setDeploying(true);
-    setDeploymentOutput('');
     try {
-      const res = await terraformApi.plan(projectId);
-      setDeploymentStatus(res.data.status);
-      setDeploymentOutput(res.data.output || 'Plan completed.');
-      if (res.data.status === 'planned') {
-        toast.success('Terraform plan created');
-      } else {
-        toast.error('Terraform plan failed — see output below');
-      }
-    } catch (err: any) {
-      setDeploymentStatus('failed');
-      setDeploymentOutput(err.response?.data?.detail?.message || err.response?.data?.detail || 'Plan failed');
-      toast.error('Terraform plan failed');
-    } finally {
-      setDeploying(false);
+      const r = await projectsApi.get(projectId);
+      setProject(r.data);
+      setDeploymentStatus(r.data.status);
+    } catch {
+      // ignore
     }
   };
 
-  const handleApply = async () => {
-    if (!projectId || !confirm('Deploy these resources to AWS? Review the plan first.')) return;
-    setDeploying(true);
-    try {
-      const res = await terraformApi.apply(projectId);
-      setDeploymentStatus(res.data.status);
-      setDeploymentOutput(res.data.output || 'Deployment completed.');
-      if (res.data.status === 'deployed') {
-        toast.success('Infrastructure deployed');
-        loadInfra(); // the live-infra view can now show the new resources
-        loadEvents(); // and the history timeline gets the apply entry
-      } else {
-        toast.error('Deployment failed — see output below');
+  // Poll a queued deployment's streamed logs until it reaches a terminal state.
+  const pollDeployment = async (deploymentId: string): Promise<'succeeded' | 'failed'> => {
+    if (!projectId) return 'failed';
+    let after = -1;
+    let buffer = '';
+    for (;;) {
+      let res;
+      try {
+        res = await terraformApi.deploymentLogs(projectId, deploymentId, after);
+      } catch {
+        await new Promise((r) => setTimeout(r, 1500));
+        continue;
       }
-    } catch (err: any) {
-      setDeploymentStatus('failed');
-      setDeploymentOutput(err.response?.data?.detail || 'Deployment failed');
-      toast.error('Deployment failed');
-    } finally {
-      setDeploying(false);
+      for (const l of res.data.logs) {
+        buffer += `${l.message}\n`;
+        after = l.seq;
+      }
+      setDeploymentOutput(buffer.slice(-10000));
+      const status = res.data.deployment.status;
+      if (status === 'succeeded' || status === 'failed') return status;
+      await new Promise((r) => setTimeout(r, 1000));
     }
   };
 
-  // Two-step destroy: first create a reviewable destroy plan bound to the
-  // deployed workspace, then apply it. No more blind -auto-approve destroy.
-  const handlePlanDestroy = async () => {
+  // Enqueue an operation for the isolated worker, then stream its logs.
+  const runOperation = async (
+    op: 'plan' | 'apply' | 'plan_destroy' | 'destroy',
+    confirmMsg?: string
+  ) => {
     if (!projectId) return;
+    if (confirmMsg && !confirm(confirmMsg)) return;
     setDeploying(true);
-    setDeploymentOutput('');
+    setDeploymentOutput('Queued…\n');
     try {
-      const res = await terraformApi.planDestroy(projectId);
-      setDeploymentStatus(res.data.status);
-      setDeploymentOutput(res.data.output || 'Destroy plan created.');
-      if (res.data.status === 'destroy_planned') {
-        setDestroyPlanLocal(true);
-        loadInfra();
-      }
-      toast.success(res.data.status === 'destroy_planned' ? 'Destroy plan created — review it, then Destroy' : 'Destroy plan failed');
-    } catch (err: any) {
-      setDeploymentStatus('failed');
-      setDeploymentOutput(err.response?.data?.detail || 'Destroy plan failed');
-      toast.error('Destroy plan failed');
-    } finally {
-      setDeploying(false);
-    }
-  };
-
-  const handleDestroy = async () => {
-    if (!projectId || !confirm('Destroy the deployed AWS infrastructure? This cannot be undone.')) return;
-    setDeploying(true);
-    try {
-      const res = await terraformApi.destroy(projectId);
-      setDeploymentStatus(res.data.status === 'destroyed' ? 'destroyed' : 'failed');
-      if (res.data.status === 'destroyed') setDestroyPlanLocal(false);
-      setDeploymentOutput(res.data.output || 'Destroy completed.');
-      if (res.data.status === 'destroyed') {
-        toast.success('Infrastructure destroyed');
-        loadInfra();
-        loadEvents();
+      const res =
+        op === 'plan' ? await terraformApi.plan(projectId)
+        : op === 'apply' ? await terraformApi.apply(projectId)
+        : op === 'plan_destroy' ? await terraformApi.planDestroy(projectId)
+        : await terraformApi.destroy(projectId);
+      const final = await pollDeployment(res.data.id);
+      await refreshProject();
+      await loadInfra();
+      loadEvents();
+      if (final === 'succeeded') {
+        if (op === 'plan') toast.success('Terraform plan created');
+        else if (op === 'apply') toast.success('Infrastructure deployed');
+        else if (op === 'plan_destroy') {
+          setDestroyPlanLocal(true);
+          toast.success('Destroy plan created — review it, then Destroy');
+        } else {
+          setDestroyPlanLocal(false);
+          toast.success('Infrastructure destroyed');
+        }
       } else {
-        toast.error('Destroy failed — see output below');
+        toast.error(`${op.replace('_', ' ')} failed — see output below`);
       }
     } catch (err: any) {
       setDeploymentStatus('failed');
-      setDeploymentOutput(err.response?.data?.detail || 'Destroy failed');
-      toast.error('Destroy failed');
+      setDeploymentOutput(
+        err.response?.data?.detail?.message || err.response?.data?.detail || 'Operation failed'
+      );
+      toast.error('Operation failed');
     } finally {
       setDeploying(false);
     }
   };
 
-  // One-click teardown from the Live Infrastructure view: runs the same
-  // reviewed two-step destroy (plan-destroy → destroy) under the hood.
+  const handlePlan = () => runOperation('plan');
+  const handleApply = () => runOperation('apply', 'Deploy these resources to AWS? Review the plan first.');
+  const handlePlanDestroy = () => runOperation('plan_destroy');
+  const handleDestroy = () => runOperation('destroy', 'Destroy the deployed AWS infrastructure? This cannot be undone.');
+
+  // One-click teardown from the Live Infrastructure view: plan-destroy → destroy.
   const handleInfraDestroy = async () => {
     if (!projectId || !confirm(`Destroy ALL deployed infrastructure in ${infra?.region || 'your region'}? This cannot be undone.`)) return;
-    setDeploying(true);
-    setDeploymentOutput('');
-    try {
-      const planRes = await terraformApi.planDestroy(projectId);
-      if (planRes.data.status !== 'destroy_planned') {
-        setDeploymentStatus('failed');
-        setDeploymentOutput(planRes.data.output || 'Destroy plan failed.');
-        toast.error('Destroy plan failed — see output below');
-        return;
-      }
-      setDeploymentStatus('destroy_planned');
-      setDestroyPlanLocal(true);
-      const res = await terraformApi.destroy(projectId);
-      setDeploymentStatus(res.data.status === 'destroyed' ? 'destroyed' : 'failed');
-      if (res.data.status === 'destroyed') setDestroyPlanLocal(false);
-      setDeploymentOutput(res.data.output || 'Destroy completed.');
-      if (res.data.status === 'destroyed') {
-        toast.success('Infrastructure destroyed');
-        loadInfra();
-        loadEvents();
-        projectsApi.get(projectId).then((r) => setProject(r.data)).catch(() => {});
-      } else {
-        toast.error('Destroy failed — see output below');
-      }
-    } catch (err: any) {
-      setDeploymentStatus('failed');
-      setDeploymentOutput(err.response?.data?.detail || 'Destroy failed');
-      toast.error('Destroy failed');
-    } finally {
-      setDeploying(false);
-    }
+    await runOperation('plan_destroy');
+    await runOperation('destroy');
   };
 
   // Start/stop a deployed compute resource in place (provider API, not destroy).
