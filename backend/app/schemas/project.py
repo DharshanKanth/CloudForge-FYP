@@ -12,7 +12,10 @@ class ProjectCreate(BaseModel):
 class ProjectUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
-    status: Optional[Literal["draft", "saved", "planned", "deployed"]] = None
+    status: Optional[Literal[
+        "draft", "validated", "generated", "ready", "deploying",
+        "deployed", "destroying", "destroyed", "failed",
+    ]] = None
 
 
 class ProjectResponse(BaseModel):

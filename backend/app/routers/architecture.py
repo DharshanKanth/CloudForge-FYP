@@ -11,6 +11,7 @@ from app.core.deps import get_current_user
 from app.services.validation_service import validate_architecture
 from app.services.cost_service import estimate as estimate_cost
 from app.services.security_service import analyze as analyze_security
+from app.services import deployment_state
 
 router = APIRouter()
 
@@ -63,8 +64,9 @@ async def save_architecture(
     # Update project's updated_at
     proj_result = await db.execute(select(Project).where(Project.id == project_id))
     project = proj_result.scalar_one_or_none()
-    if project:
-        project.status = "saved"
+    if project and deployment_state.is_design_editable(project.status):
+        # Editing the design invalidates prior validation/generation.
+        project.status = deployment_state.DRAFT
 
     try:
         await db.commit()
@@ -101,7 +103,21 @@ async def validate_project_architecture(
     if not arch:
         raise HTTPException(status_code=404, detail="Architecture not found")
 
-    return validate_architecture(arch.nodes, arch.edges)
+    outcome = validate_architecture(arch.nodes, arch.edges)
+
+    # A clean validation advances the lifecycle (unless already deployed).
+    proj_result = await db.execute(select(Project).where(Project.id == project_id))
+    project = proj_result.scalar_one_or_none()
+    if (
+        project
+        and outcome.valid
+        and deployment_state.is_design_editable(project.status)
+        and project.status != deployment_state.READY
+    ):
+        project.status = deployment_state.VALIDATED
+        await db.commit()
+
+    return outcome
 
 
 @router.get("/{project_id}/security")

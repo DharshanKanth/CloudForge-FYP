@@ -12,9 +12,10 @@ from app.core.deps import get_current_user
 from app.services.terraform_service import generate_terraform_files
 from app.services.validation_service import validate_architecture
 from app.services.zip_service import create_terraform_zip
-from app.services import deployment_service, cloud_service
+from app.services import deployment_service, cloud_service, deployment_state, cloud_ops_service
 import json
 import subprocess
+import asyncio
 
 router = APIRouter()
 
@@ -50,6 +51,13 @@ async def generate_terraform(
     validation = validate_architecture(arch.nodes, arch.edges)
 
     files = _generate_or_400(project, arch)
+
+    if project.status in {
+        deployment_state.DRAFT, deployment_state.VALIDATED,
+        deployment_state.GENERATED, deployment_state.FAILED, deployment_state.DESTROYED,
+    }:
+        project.status = deployment_state.GENERATED
+        await db.commit()
 
     return TerraformGenerateResponse(
         project_id=project_id,
@@ -118,8 +126,10 @@ async def plan_terraform(
     env_extra = await cloud_service.aws_env_for_user(db, project.user_id)
     result = await _run_deployment(deployment_service.plan, project_id, files, env_extra)
     if result["status"] == "planned":
-        project.status = "planned"
-        await db.commit()
+        project.status = deployment_state.READY
+    else:
+        project.status = deployment_state.FAILED
+    await db.commit()
     await _create_event(
         db, project_id, "plan",
         "succeeded" if result["status"] == "planned" else "failed",
@@ -137,10 +147,14 @@ async def apply_terraform(
 ):
     project = await _get_project(project_id, current_user.id, db)
     env_extra = await cloud_service.aws_env_for_user(db, project.user_id)
-    result = await _run_deployment(deployment_service.apply, project_id, env_extra)
-    if result["status"] == "deployed":
-        project.status = "deployed"
+    if project.status == deployment_state.READY:
+        project.status = deployment_state.DEPLOYING
         await db.commit()
+    result = await _run_deployment(deployment_service.apply, project_id, env_extra)
+    project.status = (
+        deployment_state.DEPLOYED if result["status"] == "deployed" else deployment_state.FAILED
+    )
+    await db.commit()
     await _create_event(
         db, project_id, "apply",
         "succeeded" if result["status"] == "deployed" else "failed",
@@ -166,6 +180,38 @@ async def get_infrastructure(
     return deployment_service.infrastructure(project.id)
 
 
+@router.post("/{project_id}/terraform/resources/{address}/{action}")
+async def resource_power(
+    project_id: str,
+    address: str,
+    action: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Start or stop a compute resource in place (provider API, not destroy)."""
+    if action not in ("start", "stop"):
+        raise HTTPException(status_code=400, detail="action must be 'start' or 'stop'")
+    project = await _get_project(project_id, current_user.id, db)
+    live = deployment_service.infrastructure(project.id)
+    target = next((r for r in live.get("resources", []) if r["address"] == address), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Resource not found in the deployed state")
+    if not target.get("controllable"):
+        raise HTTPException(status_code=400, detail=f"{target['type']} does not support start/stop")
+
+    env_extra = await cloud_service.aws_env_for_user(db, project.user_id)
+    result = await asyncio.to_thread(
+        cloud_ops_service.power, [target["id"]], action, env_extra, live.get("region", "")
+    )
+    await _create_event(
+        db, project_id, action,
+        "succeeded" if result.get("state") in ("started", "stopped") else "failed",
+        result.get("message") or f"{action} {target['id']}",
+        None,
+    )
+    return result
+
+
 @router.delete("/{project_id}/terraform/clear")
 async def clear_workspace(
     project_id: str,
@@ -183,6 +229,8 @@ async def clear_workspace(
     result = deployment_service.clear(project.id, force=force)
     if result.get("status") == "blocked":
         raise HTTPException(status_code=409, detail=result)
+    project.status = deployment_state.DRAFT
+    await db.commit()
     await _create_event(
         db, project_id, "clear",
         "succeeded",
@@ -224,10 +272,13 @@ async def destroy_terraform(
 ):
     project = await _get_project(project_id, current_user.id, db)
     env_extra = await cloud_service.aws_env_for_user(db, project.user_id)
+    project.status = deployment_state.DESTROYING
+    await db.commit()
     result = await _run_deployment(deployment_service.destroy, project_id, env_extra)
-    if result["status"] == "destroyed":
-        project.status = "saved"
-        await db.commit()
+    project.status = (
+        deployment_state.DESTROYED if result["status"] == "destroyed" else deployment_state.FAILED
+    )
+    await db.commit()
     await _create_event(
         db, project_id, "destroy",
         "succeeded" if result["status"] == "destroyed" else "failed",

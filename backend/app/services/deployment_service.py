@@ -306,6 +306,8 @@ def _parse_state_resources(state: Dict) -> List[Dict]:
                 "label": _state_friendly_name(attrs) or rname,
                 "id": attrs.get("id") or attrs.get("bucket") or attrs.get("name") or "",
                 "category": _RESOURCE_CATEGORY.get(rtype, "network"),
+                # Resources that support an in-place start/stop (not destroy).
+                "controllable": rtype in ("aws_instance",),
                 "attributes": {
                     k: attrs.get(k)
                     for k in sorted(allow)
@@ -351,6 +353,7 @@ def infrastructure(project_id: str) -> Dict:
                 "outputs": {},
                 "region": region,
                 "state_updated_at": None,
+                "destroy_plan_ready": (workspace / "tfdestroy").is_file(),
             }
         outputs = {
             key: value.get("value")
@@ -365,6 +368,7 @@ def infrastructure(project_id: str) -> Dict:
             "state_updated_at": (
                 state_path.stat().st_mtime if state_path.is_file() else None
             ),
+            "destroy_plan_ready": (workspace / "tfdestroy").is_file(),
         }
 
 
