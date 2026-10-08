@@ -36,6 +36,7 @@ updates:
     groups:
       github-actions:
         patterns: ["*"]
+        update-types: [minor, patch]
 
   # Docker base images move slowly; check monthly and don't flood the PR list.
   - package-ecosystem: docker
