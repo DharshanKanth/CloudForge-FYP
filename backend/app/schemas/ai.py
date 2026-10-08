@@ -57,3 +57,14 @@ class AITextResponse(BaseModel):
     configured: bool
     message: Optional[str] = None
     text: Optional[str] = None
+
+
+class AIFixResponse(BaseModel):
+    configured: bool
+    source: Optional[str] = None  # engine | ai | none
+    message: Optional[str] = None
+    rationale: Optional[str] = None
+    nodes: List[Dict[str, Any]] = []
+    edges: List[Dict[str, Any]] = []
+    before: Optional[Dict] = None
+    after: Optional[Dict] = None

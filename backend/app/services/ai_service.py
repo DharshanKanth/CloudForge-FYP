@@ -167,11 +167,22 @@ _ARCH_SCHEMA = {
 
 
 def to_canvas(arch: AIArchitecture) -> Tuple[List[Dict], List[Dict]]:
-    """Convert an AI proposal into builder-canvas nodes/edges (not yet validated)."""
+    """Convert an AI proposal into builder-canvas nodes/edges.
+
+    A deterministic safety net: nodes with an unsupported resourceType are
+    dropped, and edges referencing unknown nodes are dropped. The result is
+    still validated by the caller.
+    """
+    kept = [
+        n for n in arch.nodes
+        if n.resourceType in SUPPORTED_RESOURCE_TYPES and n.id
+    ]
+    kept_ids = {n.id for n in kept}
+
     nodes: List[Dict] = []
-    for i, n in enumerate(arch.nodes):
+    for i, n in enumerate(kept):
         nodes.append({
-            "id": n.id or f"ai-{i}",
+            "id": n.id,
             "type": "resourceNode",
             "position": {"x": 220 * (i % 4), "y": 160 * (i // 4)},
             "data": {
@@ -184,6 +195,7 @@ def to_canvas(arch: AIArchitecture) -> Tuple[List[Dict], List[Dict]]:
     edges = [
         {"id": f"ai-e{i}", "source": e.source, "target": e.target}
         for i, e in enumerate(arch.edges)
+        if e.source in kept_ids and e.target in kept_ids and e.source != e.target
     ]
     return nodes, edges
 
@@ -212,13 +224,12 @@ def _extract_json(text: str) -> Dict:
     raise ValueError("The AI did not return valid JSON")
 
 
-async def recommend_architecture(prompt: str) -> AIArchitecture:
-    messages = [
-        {"role": "system", "content": _SYSTEM_ARCHITECT},
-        {"role": "user", "content": prompt},
-    ]
-    # Local CPU models are stochastic and can occasionally emit invalid JSON or
-    # an empty design; retry once before giving up.
+async def _design_from_messages(messages: List[Dict[str, str]]) -> AIArchitecture:
+    """Query the model and coerce its JSON into an AIArchitecture (one retry).
+
+    Small local models are stochastic and can emit invalid JSON or an empty
+    design; retrying once materially improves the success rate.
+    """
     use_schema = _provider() != "ollama"
     last_error: Optional[Exception] = None
     for attempt in range(2):
@@ -237,6 +248,50 @@ async def recommend_architecture(prompt: str) -> AIArchitecture:
         logger.warning("AI attempt %d returned no resources", attempt + 1)
         last_error = ValueError("The AI returned no resources")
     raise last_error or ValueError("The AI did not return a usable design")
+
+
+async def recommend_architecture(prompt: str) -> AIArchitecture:
+    return await _design_from_messages([
+        {"role": "system", "content": _SYSTEM_ARCHITECT},
+        {"role": "user", "content": prompt},
+    ])
+
+
+_SYSTEM_FIX = (
+    _SYSTEM_ARCHITECT
+    + " You are given an existing design and the exact validation problems with it. "
+    "Make the MINIMAL change that resolves each listed problem — prefer adding or removing "
+    "edges over altering resources. Keep every existing node's id. Do NOT invent resource "
+    "types: use only the allowed values. Return the corrected design in the same JSON format."
+)
+
+
+def _slim_node(node: Dict) -> Dict:
+    data = node.get("data", {}) or {}
+    return {
+        "id": node.get("id"),
+        "resourceType": data.get("resourceType") or node.get("type"),
+        "properties": data.get("properties", {}) or {},
+    }
+
+
+async def fix_architecture(nodes, edges, issues) -> AIArchitecture:
+    """Ask the model to repair a design given the validator's findings."""
+    design = json.dumps({
+        "nodes": [_slim_node(n) for n in nodes],
+        "edges": [{"source": e.get("source"), "target": e.get("target")} for e in edges],
+    })
+    problems = "\n".join(
+        f"- [{i.get('level')}] {i.get('message')}" for i in issues[:40]
+    ) or "(none)"
+    messages = [
+        {"role": "system", "content": _SYSTEM_FIX},
+        {
+            "role": "user",
+            "content": f"Current design:\n{design}\n\nValidation problems:\n{problems}\n\nReturn the corrected design.",
+        },
+    ]
+    return await _design_from_messages(messages)
 
 
 def _join_files(files, limit: int) -> str:

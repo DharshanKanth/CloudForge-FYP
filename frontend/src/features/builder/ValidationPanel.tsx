@@ -1,9 +1,11 @@
-import { CheckCircle, AlertCircle, AlertTriangle, X, Info } from 'lucide-react';
+import { CheckCircle, AlertCircle, AlertTriangle, X, Info, Sparkles, Loader2 } from 'lucide-react';
 import type { ValidationIssue, ValidationResult } from '../../types';
 
 interface ValidationPanelProps {
   result: ValidationResult | null;
   onClose: () => void;
+  onFixWithAi?: () => void;
+  fixing?: boolean;
 }
 
 const levelConfig = {
@@ -12,7 +14,7 @@ const levelConfig = {
   info: { icon: Info, color: 'text-blue-400', bg: 'bg-blue-900/10', border: 'border-blue-800/30', label: 'Info' },
 };
 
-export function ValidationPanel({ result, onClose }: ValidationPanelProps) {
+export function ValidationPanel({ result, onClose, onFixWithAi, fixing }: ValidationPanelProps) {
   if (!result) return null;
   const errors = result.issues.filter((i) => i.level === 'error');
   const warnings = result.issues.filter((i) => i.level === 'warning');
@@ -29,7 +31,20 @@ export function ValidationPanel({ result, onClose }: ValidationPanelProps) {
           )}
           {warnings.length > 0 && <span className="text-xs text-yellow-400">{warnings.length} warning{warnings.length !== 1 ? 's' : ''}</span>}
         </div>
-        <button onClick={onClose} className="text-dark-600 hover:text-dark-300 transition-colors"><X className="w-4 h-4" /></button>
+        <div className="flex items-center gap-2">
+          {onFixWithAi && result.issues.length > 0 && (
+            <button
+              onClick={onFixWithAi}
+              disabled={fixing}
+              className="btn-secondary text-xs inline-flex items-center gap-1.5"
+              title="Ask the AI to fix these issues (advisory — re-validated before applying)"
+            >
+              {fixing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+              {fixing ? 'Fixing…' : 'Fix with AI'}
+            </button>
+          )}
+          <button onClick={onClose} className="text-dark-600 hover:text-dark-300 transition-colors"><X className="w-4 h-4" /></button>
+        </div>
       </div>
       <div className="overflow-y-auto px-4 py-2 space-y-1.5" style={{ maxHeight: 160 }}>
         {result.issues.length === 0 ? (

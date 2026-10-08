@@ -166,6 +166,7 @@ export const aiApi = {
   explain: (projectId: string) => api.post('/api/ai/explain', { project_id: projectId }),
   troubleshoot: (projectId: string, error: string) =>
     api.post('/api/ai/troubleshoot', { project_id: projectId, error }),
+  fix: (projectId: string) => api.post('/api/ai/fix', { project_id: projectId }),
 };
 
 export default api;

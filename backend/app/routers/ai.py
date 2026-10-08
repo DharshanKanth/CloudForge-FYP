@@ -22,12 +22,14 @@ from app.models.user import User
 from app.schemas.ai import (
     AIArchitectRequest,
     AIArchitectResponse,
+    AIFixResponse,
     AIProjectRequest,
     AIStatusResponse,
     AITextResponse,
     AITroubleshootRequest,
 )
 from app.services import ai_service
+from app.services.autofix_service import auto_fix
 from app.services.terraform_service import generate_terraform_files
 from app.services.validation_service import validate_architecture
 
@@ -44,6 +46,15 @@ async def _get_project(project_id: str, user_id: str, db: AsyncSession) -> Proje
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     return project
+
+
+async def _get_arch(db: AsyncSession, project_id: str) -> Architecture:
+    arch = (await db.execute(
+        select(Architecture).where(Architecture.project_id == project_id)
+    )).scalar_one_or_none()
+    if not arch:
+        raise HTTPException(status_code=404, detail="Architecture not found. Save your design first.")
+    return arch
 
 
 async def _files_for(db: AsyncSession, project: Project):
@@ -128,6 +139,78 @@ async def explain(
     ))
     await db.commit()
     return AITextResponse(configured=True, text=text)
+
+
+@router.post("/fix", response_model=AIFixResponse)
+async def fix_architecture_endpoint(
+    req: AIProjectRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Ask the AI to correct the current design's validation problems.
+
+    Advisory: the corrected design is re-checked by the deterministic validator
+    and the user must apply it.
+    """
+    if not ai_service.status()["configured"]:
+        return AIFixResponse(configured=False, message=_NOT_CONFIGURED)
+    project = await _get_project(req.project_id, current_user.id, db)
+    arch = await _get_arch(db, project.id)
+    before = validate_architecture(arch.nodes, arch.edges)
+    if not before.issues:
+        return AIFixResponse(
+            configured=True, source="none",
+            message="No validation issues to fix.", before=before.model_dump()
+        )
+
+    def _err(v):
+        return sum(1 for i in v.issues if i.level == "error")
+
+    # 1) Deterministic structural repair first (reliable, never worse).
+    fixed_nodes, fixed_edges = auto_fix(arch.nodes, arch.edges)
+    engine_validation = validate_architecture(fixed_nodes, fixed_edges)
+    best_nodes, best_edges, after, source = fixed_nodes, fixed_edges, engine_validation, "engine"
+
+    # 2) If the engine didn't resolve everything, let the AI try on the repaired design.
+    if _err(engine_validation) > 0:
+        try:
+            suggestion = await ai_service.fix_architecture(
+                fixed_nodes, fixed_edges, [i.model_dump() for i in engine_validation.issues]
+            )
+            ai_nodes, ai_edges = ai_service.to_canvas(suggestion)
+            ai_validation = validate_architecture(ai_nodes, ai_edges)
+            if _err(ai_validation) < _err(engine_validation):
+                best_nodes, best_edges, after, source = ai_nodes, ai_edges, ai_validation, "ai"
+        except (ai_service.AIProviderError, ValueError, ValidationError):
+            pass
+
+    improved = _err(after) < _err(before)
+    changed = len(best_edges) != len(arch.edges)
+    configured = ai_service.status()["configured"]
+
+    if not improved and not changed:
+        return AIFixResponse(
+            configured=configured, source="none",
+            message="No automatic fix found for these issues.",
+            before=before.model_dump(), after=after.model_dump(),
+        )
+
+    db.add(AIRecommendation(
+        user_id=current_user.id, project_id=project.id, kind="fix",
+        prompt=f"{len(before.issues)} validation issues",
+        response=json.dumps({"source": source, "before_errors": _err(before), "after_errors": _err(after)})[:4000],
+        provider="engine" if source == "engine" else ai_service.status()["provider"],
+    ))
+    await db.commit()
+
+    return AIFixResponse(
+        configured=configured,
+        source=source,
+        nodes=best_nodes,
+        edges=best_edges,
+        before=before.model_dump(),
+        after=after.model_dump(),
+    )
 
 
 @router.post("/troubleshoot", response_model=AITextResponse)

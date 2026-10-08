@@ -48,7 +48,7 @@ import { ConfigPanel } from '../features/builder/ConfigPanel';
 import { ValidationPanel } from '../features/builder/ValidationPanel';
 import { TemplateModal } from '../features/builder/TemplateModal';
 import { AiArchitectModal } from '../features/builder/AiArchitectModal';
-import { architectureApi, projectsApi } from '../services/api';
+import { architectureApi, projectsApi, aiApi } from '../services/api';
 import type { ValidationResult, Project } from '../types';
 import toast from 'react-hot-toast';
 
@@ -206,6 +206,7 @@ export default function Builder() {
   const [loadingProject, setLoadingProject] = useState(true);
   const [saving, setSaving] = useState(false);
   const [validating, setValidating] = useState(false);
+  const [fixing, setFixing] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showAi, setShowAi] = useState(false);
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
@@ -810,6 +811,41 @@ export default function Builder() {
     }
   };
 
+  // Advisory: ask the AI to repair the current design's validation problems.
+  // The corrected design is re-validated by the backend and applied only on
+  // the user's click; nothing is deployed.
+  const handleFixWithAi = async () => {
+    if (!projectId) return;
+    setFixing(true);
+    try {
+      const res = await aiApi.fix(projectId);
+      if (res.data.source === 'none') {
+        toast(res.data.message || 'No automatic fix found', { icon: '🤖' });
+        return;
+      }
+      if (!res.data.nodes || res.data.nodes.length === 0) {
+        toast(res.data.message || 'No fix returned', { icon: '🤖' });
+        return;
+      }
+      const bErr = (res.data.before?.issues || []).filter((i: any) => i.level === 'error').length;
+      const aErr = (res.data.after?.issues || []).filter((i: any) => i.level === 'error').length;
+      if (aErr > bErr) {
+        // Never make it worse: offer nothing rather than apply a regression.
+        toast.error(`Fix would not help (errors ${bErr} → ${aErr})`);
+        return;
+      }
+      handleTemplateSelect(res.data.nodes, res.data.edges);
+      if (res.data.after) setValidationResult(res.data.after);
+      const who = res.data.source === 'ai' ? 'AI' : 'validation engine';
+      if (aErr < bErr) toast.success(`${who} fix applied — errors ${bErr} → ${aErr}`);
+      else toast(`${who} fix applied (errors ${bErr} → ${aErr})`, { icon: '🛠' });
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'AI fix failed');
+    } finally {
+      setFixing(false);
+    }
+  };
+
   const handleGenerateTerraform = async () => {
     if (!projectId) return;
     setSaving(true);
@@ -1028,6 +1064,8 @@ export default function Builder() {
             <ValidationPanel
               result={validationResult}
               onClose={() => setValidationResult(null)}
+              onFixWithAi={handleFixWithAi}
+              fixing={fixing}
             />
           )}
         </div>
