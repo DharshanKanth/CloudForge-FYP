@@ -51,3 +51,39 @@ def test_autofix_gives_load_balancer_two_subnets():
     _, edges = auto_fix(nodes, [])
     lb_edges = [e for e in edges if "lb" in (e["source"], e["target"])]
     assert len(lb_edges) == 2
+
+
+def test_autofix_removes_unsupported_relationship():
+    nodes = [
+        _n("vpc", "vpc", {"name": "v", "cidr": "10.0.0.0/16"}),
+        _n("db", "rds", {"identifier": "db", "engine": "mysql", "instanceClass": "db.t3.micro"}),
+    ]
+    _, edges = auto_fix(nodes, [{"id": "e1", "source": "vpc", "target": "db"}])
+    assert edges == []
+
+
+def test_autofix_dedupes_duplicate_and_reciprocal_edges():
+    nodes = [
+        _n("sg", "security_group", {"name": "sg"}),
+        _n("ec2", "ec2", {"name": "web", "instanceType": "t3.micro"}),
+    ]
+    edges = [
+        {"id": "e1", "source": "sg", "target": "ec2"},
+        {"id": "e2", "source": "ec2", "target": "sg"},
+        {"id": "e3", "source": "sg", "target": "ec2"},
+    ]
+    _, fixed = auto_fix(nodes, edges)
+    assert len(fixed) == 1
+
+
+def test_autofix_fills_missing_required_field():
+    nodes = [_n("db", "rds", {"identifier": "db", "engine": "mysql"})]
+    fixed_nodes, _ = auto_fix(nodes, [])
+    db = next(n for n in fixed_nodes if n["id"] == "db")
+    assert db["data"]["properties"].get("instanceClass") == "db.t3.micro"
+
+
+def test_autofix_does_not_mutate_input_nodes():
+    nodes = [_n("db", "rds", {"identifier": "db"})]
+    auto_fix(nodes, [])
+    assert "instanceClass" not in nodes[0]["data"]["properties"]
