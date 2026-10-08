@@ -185,6 +185,9 @@ export const aiApi = {
 export const diagramApi = {
   import: (filename: string, content: string) =>
     api.post('/api/diagram/import', { filename, content }),
+  // Image import is AI-assisted (vision model); still only a reviewed proposal.
+  importImage: (filename: string, media_type: string, content: string) =>
+    api.post('/api/diagram/import-image', { filename, media_type, content }),
 };
 
 export default api;

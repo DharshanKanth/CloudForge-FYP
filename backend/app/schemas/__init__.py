@@ -10,7 +10,7 @@ from app.schemas.ai import (
     AITroubleshootRequest, AITextResponse, AIStatusResponse,
 )
 from app.schemas.diagram import (
-    DiagramImportRequest, DiagramImportResponse, UnrecognizedElement,
+    DiagramImageImportRequest, DiagramImportRequest, DiagramImportResponse, UnrecognizedElement,
 )
 
 __all__ = [
@@ -22,4 +22,5 @@ __all__ = [
     "AIArchitectRequest", "AIArchitectResponse", "AIProjectRequest",
     "AITroubleshootRequest", "AITextResponse", "AIStatusResponse",
     "DiagramImportRequest", "DiagramImportResponse", "UnrecognizedElement",
+    "DiagramImageImportRequest",
 ]

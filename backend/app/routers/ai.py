@@ -99,6 +99,7 @@ async def ai_status(
         base_url=cfg.base_url,
         model=cfg.model,
         has_api_key=bool(cfg.api_key),
+        vision=ai_service.is_vision_capable(cfg.model),
     )
 
 
@@ -118,6 +119,7 @@ async def save_ai_settings(
         base_url=cfg.base_url,
         model=cfg.model,
         has_api_key=bool(cfg.api_key),
+        vision=ai_service.is_vision_capable(cfg.model),
     )
 
 

@@ -23,7 +23,7 @@ from app.services.diagram_import.mermaid import parse_mermaid
 from app.services.diagram_import.model import DiagramParseError, ParsedDiagram
 from app.services.validation_service import validate_architecture
 
-__all__ = ["DiagramParseError", "detect_format", "import_diagram"]
+__all__ = ["DiagramParseError", "detect_format", "import_diagram", "finalize_proposal"]
 
 _PARSERS = {"drawio": parse_drawio, "mermaid": parse_mermaid, "json": parse_canonical}
 
@@ -116,26 +116,32 @@ def _to_canvas(parsed: ParsedDiagram) -> Tuple[List[Dict], List[Dict]]:
     return nodes, edges
 
 
-def import_diagram(filename: str, content: str) -> Dict:
-    """Parse a diagram and return a validated, canvas-ready proposal."""
-    fmt = detect_format(filename, content)
-    parsed = _PARSERS[fmt](content)
-    nodes, edges = _to_canvas(parsed)
-    # Same deterministic cleanup the AI architect uses: fill required fields,
-    # drop invalid/duplicate edges, add unambiguous connections.
+def finalize_proposal(
+    fmt: str,
+    source_label: str,
+    nodes: List[Dict],
+    edges: List[Dict],
+    unrecognized: List[Tuple[str, str]],
+    warnings: List[str],
+) -> Dict:
+    """Repair + validate a canvas proposal and shape the API response.
+
+    Shared by every import path so a proposal is treated identically regardless
+    of whether it came from a draw.io file or a vision model.
+    """
     nodes, edges = auto_fix(nodes, edges)
     validation = validate_architecture(nodes, edges)
 
-    warnings = list(parsed.warnings)
+    warnings = list(warnings)
     if nodes:
         warnings.append(
             "Resource properties are filled with Free-Tier defaults where the "
             "diagram did not specify them — review them in the config panel."
         )
 
-    summary = f"Imported {fmt} diagram: {len(nodes)} resource(s), {len(edges)} connection(s)."
-    if parsed.unrecognized:
-        summary += f" {len(parsed.unrecognized)} element(s) were not recognised."
+    summary = f"Imported {source_label}: {len(nodes)} resource(s), {len(edges)} connection(s)."
+    if unrecognized:
+        summary += f" {len(unrecognized)} element(s) were not recognised."
 
     return {
         "format": fmt,
@@ -143,7 +149,16 @@ def import_diagram(filename: str, content: str) -> Dict:
         "nodes": nodes,
         "edges": edges,
         "recognized": len(nodes),
-        "unrecognized": [{"label": label, "reason": reason} for label, reason in parsed.unrecognized],
+        "unrecognized": [{"label": label, "reason": reason} for label, reason in unrecognized],
         "warnings": warnings,
         "validation": validation.model_dump(),
     }
+
+
+def import_diagram(filename: str, content: str) -> Dict:
+    """Parse a structured diagram and return a validated, canvas-ready proposal."""
+    fmt = detect_format(filename, content)
+    parsed = _PARSERS[fmt](content)
+    nodes, edges = _to_canvas(parsed)
+    source_label = {"drawio": "draw.io diagram", "mermaid": "Mermaid diagram", "json": "JSON file"}[fmt]
+    return finalize_proposal(fmt, source_label, nodes, edges, parsed.unrecognized, parsed.warnings)

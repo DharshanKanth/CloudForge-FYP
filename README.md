@@ -22,7 +22,7 @@
 | ⏯ **EC2 stop / start** via the provider API (not destroy) | ✅ boto3 |
 | 💰 **Cost estimation** + 🔒 **security analysis** | ✅ Deterministic |
 | 🤖 **AI assistant** (advisory; local Ollama or hosted, per-user keys) | ✅ Never executes infra |
-| 📥 **Diagram import** — draw.io / Mermaid / JSON → canvas proposal | ✅ Deterministic |
+| 📥 **Diagram import** — draw.io / Mermaid / JSON (deterministic) + image (vision) → canvas proposal | ✅ Review first |
 | 🧪 **Tests + CI** — pytest, vitest, Alembic drift check | ✅ GitHub Actions |
 
 ---
@@ -105,13 +105,22 @@ App opens at: **http://localhost:5173**
 6. **Generate Terraform** — inspect `main.tf` / `variables.tf` / `outputs.tf` /
    `providers.tf` in Monaco, then **Download ZIP**.
 
-### Part A2 — Import an existing diagram (draw.io / Mermaid / JSON)
+### Part A2 — Import an existing diagram (draw.io / Mermaid / JSON / image)
 Builder toolbar → **Import** → drop a **draw.io** (`.drawio`/`.xml`) file, a
-**Mermaid** flowchart (`.mmd`), or CloudForge **JSON**. CloudForge maps AWS
-icons/labels to resources **deterministically** (no AI), fills Free-Tier
-defaults, reports anything it could not recognise, runs the validator, and shows
-a preview — click **Apply to canvas**, then **Validate** as usual. VPC/subnet
-containment is derived from draw.io nesting and Mermaid `subgraph` blocks.
+**Mermaid** flowchart (`.mmd`), CloudForge **JSON**, or an **image** (`.png`/`.jpg`).
+CloudForge maps AWS icons/labels to resources **deterministically** (no AI), fills
+Free-Tier defaults, reports anything it could not recognise, runs the validator,
+and shows a preview — click **Apply to canvas**, then **Validate** as usual.
+VPC/subnet containment is derived from draw.io nesting and Mermaid `subgraph`
+blocks.
+
+Image import is **AI-assisted** (best-effort) and needs a **vision-capable
+model** — configure one in **Settings → AI Assistant**. With the bundled Ollama:
+```bash
+docker compose exec ollama ollama pull qwen2.5vl:3b
+```
+then set the model to `qwen2.5vl:3b` in Settings (leave the Base URL as-is). The
+result is still only a proposal you review; nothing is deployed.
 
 ### Part B — Plan → Deploy → Logs (needs AWS)
 7. **Plan** — enqueues a job; the **isolated worker** runs `terraform init/validate/plan`
@@ -202,6 +211,10 @@ cloudforge/
     is encrypted at rest and never returned; **Test connection** verifies it
     before saving, and **Clear** falls back to the server default. Per-user
     settings always win over the environment config for that user.
+  - **Image import needs a vision model** (`gpt-4o`, `qwen2.5-vl`, `llava`, …).
+    Settings shows "image import ✓" when the configured model looks vision-capable;
+    the feature is never faked — if the model can't read images the real provider
+    error is surfaced.
 - The auth rate limiter is **in-process** (per uvicorn worker). It is fine for a
   single worker; with multiple workers or horizontally scaled replicas, put a
   shared limiter in front (e.g. nginx `limit_req`) instead of relying on it.

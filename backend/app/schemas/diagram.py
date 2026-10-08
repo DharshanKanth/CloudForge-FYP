@@ -9,13 +9,20 @@ class DiagramImportRequest(BaseModel):
     content: str = Field(min_length=1, max_length=5_000_000)
 
 
+class DiagramImageImportRequest(BaseModel):
+    filename: str = Field(default="diagram.png", max_length=255)
+    media_type: Literal["image/png", "image/jpeg", "image/webp", "image/gif"] = "image/png"
+    # Base64-encoded image bytes (no data-URL prefix). ~8 MB of base64 ≈ 6 MB image.
+    content: str = Field(min_length=1, max_length=8_000_000)
+
+
 class UnrecognizedElement(BaseModel):
     label: str
     reason: str = "Not a supported resource type"
 
 
 class DiagramImportResponse(BaseModel):
-    format: Literal["drawio", "mermaid", "json"]
+    format: Literal["drawio", "mermaid", "json", "image"]
     summary: str = ""
     nodes: List[Dict[str, Any]] = []
     edges: List[Dict[str, Any]] = []

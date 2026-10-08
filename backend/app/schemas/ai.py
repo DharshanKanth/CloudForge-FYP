@@ -21,6 +21,8 @@ class AIArchitecture(BaseModel):
     nodes: List[AIRecNode] = []
     edges: List[AIRecEdge] = []
     rationale: str = ""
+    # Elements seen but not mappable to a supported type (vision import).
+    unrecognized: List[Dict[str, Any]] = []
 
 
 class AIArchitectRequest(BaseModel):
@@ -84,6 +86,7 @@ class AISettingResponse(BaseModel):
     base_url: Optional[str] = None
     model: str = ""
     has_api_key: bool = False
+    vision: bool = False
 
 
 class AIConnectionTestResponse(BaseModel):

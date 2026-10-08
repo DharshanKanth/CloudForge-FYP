@@ -11,7 +11,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
@@ -119,7 +119,12 @@ async def test_connection(cfg: AIConfig) -> Dict:
         _config_var.reset(token)
 
 
-async def _chat(messages: List[Dict[str, str]], response_json: bool = True, schema: Optional[Dict] = None) -> str:
+async def _chat(
+    messages: List[Dict[str, Any]],
+    response_json: bool = True,
+    schema: Optional[Dict] = None,
+    max_tokens: Optional[int] = None,
+) -> str:
     provider = _provider()
     if provider == "none":
         raise AIUnavailable("AI is not configured. Set AI_PROVIDER/AI_API_KEY on the backend.")
@@ -136,7 +141,7 @@ async def _chat(messages: List[Dict[str, str]], response_json: bool = True, sche
         "temperature": 0,
         # Bound latency: a small local model can otherwise loop until it fills
         # the context window.
-        "max_tokens": int(os.getenv("AI_MAX_TOKENS", "900")),
+        "max_tokens": int(max_tokens or os.getenv("AI_MAX_TOKENS", "900")),
     }
     if schema is not None:
         # Constrain output to a JSON schema (Ollama accepts a schema in `format`;
@@ -272,16 +277,24 @@ def _extract_json(text: str) -> Dict:
     raise ValueError("The AI did not return valid JSON")
 
 
-async def _design_from_messages(messages: List[Dict[str, str]]) -> AIArchitecture:
+async def _design_from_messages(
+    messages: List[Dict[str, Any]],
+    schema: Optional[Dict] = None,
+    max_tokens: Optional[int] = None,
+) -> AIArchitecture:
     """Query the model and coerce its JSON into an AIArchitecture (one retry).
 
     Small local models are stochastic and can emit invalid JSON or an empty
     design; retrying once materially improves the success rate.
     """
+    schema = _ARCH_SCHEMA if schema is None else schema
     use_schema = _provider() != "ollama"
     last_error: Optional[Exception] = None
     for attempt in range(2):
-        content = await _chat(messages, response_json=True, schema=_ARCH_SCHEMA if use_schema else None)
+        call_kwargs: Dict[str, Any] = {"response_json": True, "schema": schema if use_schema else None}
+        if max_tokens is not None:
+            call_kwargs["max_tokens"] = max_tokens
+        content = await _chat(messages, **call_kwargs)
         try:
             arch = AIArchitecture.model_validate(_extract_json(content))
         except Exception as exc:  # noqa: BLE001 - ValueError or pydantic ValidationError
@@ -303,6 +316,87 @@ async def recommend_architecture(prompt: str) -> AIArchitecture:
         {"role": "system", "content": _SYSTEM_ARCHITECT},
         {"role": "user", "content": prompt},
     ])
+
+
+# ── Vision (image import) ────────────────────────────────────────────────────
+
+# Providers/models known to accept image input. Used only as a *hint* for the UI;
+# the image endpoint always attempts the call and surfaces the provider's real
+# error rather than pre-blocking an unlisted vision model.
+_VISION_MODEL_HINTS = (
+    "gpt-4o", "gpt-4.1", "gpt-4-turbo", "gpt-4-vision", "gpt-5",
+    "chatgpt-4o", "o3", "o4",
+    "claude-3", "claude-4", "claude-sonnet", "claude-opus", "claude-haiku",
+    "gemini", "llava", "bakllava", "qwen2-vl", "qwen2.5-vl", "qwen3-vl",
+    "llama3.2-vision", "llama-3.2-vision", "llama4", "llama-4",
+    "pixtral", "minicpm-v", "moondream", "internvl", "gemma3",
+    "phi-3.5-vision", "phi-4-multimodal",
+)
+
+
+def is_vision_capable(model: str) -> bool:
+    m = (model or "").lower()
+    return any(hint in m for hint in _VISION_MODEL_HINTS)
+
+
+_SYSTEM_VISION = (
+    "You are an AWS cloud architecture analyst. The user uploads an image of an "
+    "architecture diagram. Identify every AWS resource shown and the connections "
+    "between them, and reply with JSON only (no prose, no markdown):\n"
+    '{"nodes":[{"id":"vpc","resourceType":"vpc","label":"VPC",'
+    '"properties":{"name":"main-vpc","cidr":"10.0.0.0/16"}},'
+    '{"id":"subnet","resourceType":"subnet","label":"Public Subnet",'
+    '"properties":{"name":"public-subnet","cidr":"10.0.1.0/24"}},'
+    '{"id":"web","resourceType":"ec2","label":"Web Server",'
+    '"properties":{"name":"web-server","instanceType":"t3.micro"}}],'
+    '"edges":[{"source":"vpc","target":"subnet"},{"source":"subnet","target":"web"}],'
+    '"unrecognized":[{"label":"AWS WAF","reason":"no matching resource type"}],'
+    '"rationale":"A VPC with one public subnet and a web server."}\n'
+    "Rules: use ONLY these resourceType values: " + _ALLOWED_TYPES + ".\n"
+    "Node ids must be unique and lowercase. Include the required properties "
+    "(vpc: name+cidr; subnet: name+cidr; ec2: name+instanceType; "
+    "security_group: name; rds: identifier+engine+instanceClass; s3: bucketName; "
+    "lambda: functionName+runtime+handler). Only include resources you can "
+    "actually see — never invent. Put anything visible that has no matching type "
+    "in 'unrecognized' instead. Capture containment (VPC->subnet->EC2) and "
+    "data-flow edges."
+)
+
+_VISION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "rationale": {"type": "string"},
+        "nodes": _ARCH_SCHEMA["properties"]["nodes"],
+        "edges": _ARCH_SCHEMA["properties"]["edges"],
+        "unrecognized": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"label": {"type": "string"}, "reason": {"type": "string"}},
+                "required": ["label"],
+            },
+        },
+    },
+    "required": ["nodes", "edges"],
+}
+
+
+async def analyze_diagram_image(image_data_url: str) -> AIArchitecture:
+    """Ask a vision-capable model to read an architecture image into a design.
+
+    Advisory only: the caller validates the result and the user reviews it.
+    """
+    messages = [
+        {"role": "system", "content": _SYSTEM_VISION},
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Analyse this architecture diagram and return the JSON."},
+                {"type": "image_url", "image_url": {"url": image_data_url}},
+            ],
+        },
+    ]
+    return await _design_from_messages(messages, schema=_VISION_SCHEMA, max_tokens=1500)
 
 
 _SYSTEM_FIX = (

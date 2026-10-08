@@ -357,6 +357,7 @@ export default function Settings() {
                     <span className="text-dark-500">
                       ({ai.source === 'user' ? 'your account' : 'server default'})
                     </span>
+                    {ai.vision && <span className="text-primary-300"> · image import ✓</span>}
                   </p>
                 ) : (
                   <p className="text-xs text-dark-500 mt-2">

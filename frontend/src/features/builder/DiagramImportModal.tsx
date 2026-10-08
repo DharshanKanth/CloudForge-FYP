@@ -1,6 +1,6 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { X, Loader2, AlertTriangle, CheckCircle2, Upload } from 'lucide-react';
-import { diagramApi } from '../../services/api';
+import { aiApi, diagramApi } from '../../services/api';
 import toast from 'react-hot-toast';
 
 interface DiagramImportModalProps {
@@ -8,22 +8,37 @@ interface DiagramImportModalProps {
   onClose: () => void;
 }
 
-const ACCEPT = '.drawio,.xml,.mmd,.mermaid,.json,.txt';
+const ACCEPT = '.drawio,.xml,.mmd,.mermaid,.json,.txt,.png,.jpg,.jpeg,.webp,.gif';
 const MAX_BYTES = 5_000_000;
+const IMAGE_RE = /\.(png|jpe?g|webp|gif)$/i;
 
 /**
- * Deterministic diagram import: a draw.io / Mermaid / JSON file is parsed into
- * a canvas proposal (no AI, no deployment). The user must click Apply, then
- * review and validate as usual.
+ * Architecture-diagram import. Structured files (draw.io / Mermaid / JSON) are
+ * parsed deterministically; images are read by an advisory vision model. Either
+ * way the result is only a proposal the user must Apply, review and validate.
  */
 export function DiagramImportModal({ onApply, onClose }: DiagramImportModalProps) {
   const [filename, setFilename] = useState('');
   const [content, setContent] = useState('');
+  const [mediaType, setMediaType] = useState('');
+  const [isImage, setIsImage] = useState(false);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [aiConfigured, setAiConfigured] = useState<boolean | null>(null);
+  const [aiVision, setAiVision] = useState<boolean | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    aiApi
+      .status()
+      .then((r) => {
+        setAiConfigured(Boolean(r.data?.configured));
+        setAiVision(Boolean(r.data?.vision));
+      })
+      .catch(() => {});
+  }, []);
 
   const readFile = (file: File) => {
     setError(null);
@@ -33,10 +48,30 @@ export function DiagramImportModal({ onApply, onClose }: DiagramImportModalProps
       return;
     }
     setFilename(file.name);
+    const image = file.type.startsWith('image/') || IMAGE_RE.test(file.name);
     const reader = new FileReader();
-    reader.onload = () => setContent(String(reader.result ?? ''));
-    reader.onerror = () => setError('Could not read the file.');
-    reader.readAsText(file);
+    if (image) {
+      reader.onload = () => {
+        const match = /^data:([^;]+);base64,([\s\S]*)$/.exec(String(reader.result ?? ''));
+        if (match) {
+          setMediaType(match[1]);
+          setContent(match[2]);
+          setIsImage(true);
+        } else {
+          setError('Could not read the image.');
+        }
+      };
+      reader.onerror = () => setError('Could not read the file.');
+      reader.readAsDataURL(file);
+    } else {
+      reader.onload = () => {
+        setContent(String(reader.result ?? ''));
+        setIsImage(false);
+        setMediaType('');
+      };
+      reader.onerror = () => setError('Could not read the file.');
+      reader.readAsText(file);
+    }
   };
 
   const runImport = async () => {
@@ -45,7 +80,9 @@ export function DiagramImportModal({ onApply, onClose }: DiagramImportModalProps
     setError(null);
     setResult(null);
     try {
-      const res = await diagramApi.import(filename || 'diagram', content);
+      const res = isImage
+        ? await diagramApi.importImage(filename || 'diagram.png', mediaType || 'image/png', content)
+        : await diagramApi.import(filename || 'diagram', content);
       setResult(res.data);
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Could not read the diagram.');
@@ -80,9 +117,10 @@ export function DiagramImportModal({ onApply, onClose }: DiagramImportModalProps
         </div>
         <p className="text-xs text-dark-500 mb-3">
           Upload a <span className="font-mono">draw.io</span> file, a{' '}
-          <span className="font-mono">Mermaid</span> flowchart, or CloudForge{' '}
-          <span className="font-mono">JSON</span>. CloudForge maps icons and labels to
-          infrastructure deterministically, then you review and validate. Nothing is deployed.
+          <span className="font-mono">Mermaid</span> flowchart, CloudForge{' '}
+          <span className="font-mono">JSON</span>, or an <span className="font-mono">image</span> of a
+          diagram. Structured files are read deterministically; images use your configured vision
+          model. Either way you review and validate — nothing is deployed.
         </p>
 
         <div
@@ -112,7 +150,9 @@ export function DiagramImportModal({ onApply, onClose }: DiagramImportModalProps
               'Drop a file here, or click to browse'
             )}
           </p>
-          <p className="text-[10px] text-dark-600 mt-1">draw.io · Mermaid · JSON · max 5 MB</p>
+          <p className="text-[10px] text-dark-600 mt-1">
+            draw.io · Mermaid · JSON · PNG/JPG/WebP · max 5 MB
+          </p>
           <input
             ref={inputRef}
             type="file"
@@ -126,6 +166,20 @@ export function DiagramImportModal({ onApply, onClose }: DiagramImportModalProps
           />
         </div>
 
+        {isImage && aiConfigured === false && (
+          <div className="mt-3 flex items-start gap-2 p-2.5 rounded-lg bg-dark-800 text-dark-300 text-[11px]">
+            <AlertTriangle className="w-3.5 h-3.5 text-yellow-400 flex-shrink-0 mt-0.5" />
+            Image import needs a vision-capable AI provider. Add one in Settings → AI Assistant.
+          </div>
+        )}
+        {isImage && aiConfigured !== false && aiVision === false && (
+          <div className="mt-3 flex items-start gap-2 p-2.5 rounded-lg bg-dark-800 text-dark-300 text-[11px]">
+            <AlertTriangle className="w-3.5 h-3.5 text-yellow-400 flex-shrink-0 mt-0.5" />
+            Your configured model isn't a known vision model. If the import fails, choose a
+            vision-capable model (e.g. gpt-4o, qwen2.5-vl) in Settings → AI Assistant.
+          </div>
+        )}
+
         <div className="flex gap-2 mt-3">
           <button
             onClick={runImport}
@@ -133,7 +187,7 @@ export function DiagramImportModal({ onApply, onClose }: DiagramImportModalProps
             className="btn-primary text-xs"
           >
             {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-            {loading ? 'Reading…' : 'Read diagram'}
+            {loading ? (isImage ? 'Analysing…' : 'Reading…') : 'Read diagram'}
           </button>
         </div>
 
