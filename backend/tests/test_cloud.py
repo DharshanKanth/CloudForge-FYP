@@ -7,6 +7,7 @@ import pytest
 
 from app.core import crypto
 from app.schemas.cloud import CloudAccountResponse
+from app.services import cloud_service
 from app.services.cloud_service import build_aws_env
 
 
@@ -49,3 +50,29 @@ def test_response_schema_never_exposes_secrets():
     # The response model has no credential fields at all.
     fields = set(CloudAccountResponse.model_fields)
     assert not fields & {"access_key_id", "secret_access_key", "session_token", "encrypted_credentials"}
+
+
+def test_verify_aws_success(monkeypatch):
+    class FakeSts:
+        def get_caller_identity(self):
+            return {
+                "Account": "123456789012",
+                "Arn": "arn:aws:iam::123456789012:user/demo",
+                "UserId": "AIDAX",
+            }
+
+    monkeypatch.setattr(cloud_service, "_sts_client", lambda creds, region: FakeSts())
+    result = cloud_service.verify_aws({"access_key_id": "AK", "secret_access_key": "SK"})
+    assert result["valid"] is True
+    assert result["account"] == "123456789012"
+    assert result["arn"].endswith("user/demo")
+
+
+def test_verify_aws_failure_surfaces_provider_error(monkeypatch):
+    def boom(creds, region):
+        raise RuntimeError("InvalidClientTokenId: The security token included in the request is invalid.")
+
+    monkeypatch.setattr(cloud_service, "_sts_client", boom)
+    result = cloud_service.verify_aws({"access_key_id": "AK", "secret_access_key": "SK"})
+    assert result["valid"] is False
+    assert "InvalidClientTokenId" in result["error"]

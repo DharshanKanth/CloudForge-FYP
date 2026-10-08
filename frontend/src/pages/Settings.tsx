@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Layout } from '../components/Layout';
-import { Cloud, Plus, Trash2, Loader2, ShieldCheck, Sparkles } from 'lucide-react';
+import { Cloud, Plus, Trash2, Loader2, ShieldCheck, Sparkles, CheckCircle2, XCircle } from 'lucide-react';
 import { cloudApi, aiApi } from '../services/api';
 import type { CloudAccount } from '../types';
 import toast from 'react-hot-toast';
@@ -24,6 +24,9 @@ export default function Settings() {
   const [accessKeyId, setAccessKeyId] = useState('');
   const [secretAccessKey, setSecretAccessKey] = useState('');
   const [ai, setAi] = useState<any>(null);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<any>(null);
+  const [verifyResults, setVerifyResults] = useState<Record<string, any>>({});
 
   const load = async () => {
     try {
@@ -81,6 +84,43 @@ export default function Settings() {
       toast.success('Cloud account disconnected');
     } catch {
       toast.error('Failed to disconnect account');
+    }
+  };
+
+  const handleTest = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await cloudApi.verifyCredentials({
+        provider: 'aws',
+        name,
+        region,
+        access_key_id: accessKeyId,
+        secret_access_key: secretAccessKey,
+      });
+      setTestResult(res.data);
+      if (res.data.valid) toast.success(`Credentials valid — account ${res.data.account}`);
+      else toast.error('Credentials invalid — see the message below');
+    } catch (err: any) {
+      setTestResult({ valid: false, error: err.response?.data?.detail || 'Verification failed' });
+      toast.error('Verification failed');
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const handleVerify = async (id: string) => {
+    try {
+      const res = await cloudApi.verify(id);
+      setVerifyResults((m) => ({ ...m, [id]: res.data }));
+      if (res.data.valid) toast.success(`Account verified (${res.data.account})`);
+      else toast.error('Account verification failed');
+    } catch (err: any) {
+      setVerifyResults((m) => ({
+        ...m,
+        [id]: { valid: false, error: err.response?.data?.detail || 'Verification failed' },
+      }));
+      toast.error('Verification failed');
     }
   };
 
@@ -153,10 +193,26 @@ export default function Settings() {
                   {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
                   Save account
                 </button>
+                <button
+                  type="button"
+                  onClick={handleTest}
+                  disabled={testing || !accessKeyId || !secretAccessKey}
+                  className="btn-secondary text-xs"
+                >
+                  {testing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+                  {testing ? 'Testing…' : 'Test connection'}
+                </button>
                 <button type="button" onClick={() => setShowForm(false)} className="btn-ghost text-xs">
                   Cancel
                 </button>
               </div>
+              {testResult && (
+                <p className={`text-[11px] ${testResult.valid ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {testResult.valid
+                    ? `✓ Valid — AWS account ${testResult.account}`
+                    : `✗ ${testResult.error}`}
+                </p>
+              )}
             </form>
           )}
 
@@ -170,17 +226,43 @@ export default function Settings() {
           ) : (
             <ul className="divide-y divide-dark-800">
               {accounts.map((a) => (
-                <li key={a.id} className="flex items-center gap-3 py-3">
-                  <span className="text-xs font-medium text-dark-200">{a.name}</span>
-                  <span className="text-[10px] uppercase text-dark-500">{a.provider}</span>
-                  <span className="text-[10px] font-mono text-dark-500">{a.region}</span>
-                  <button
-                    onClick={() => handleDelete(a.id)}
-                    className="ml-auto text-dark-500 hover:text-red-400"
-                    title="Disconnect"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                <li key={a.id} className="py-3">
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs font-medium text-dark-200">{a.name}</span>
+                    <span className="text-[10px] uppercase text-dark-500">{a.provider}</span>
+                    <span className="text-[10px] font-mono text-dark-500">{a.region}</span>
+                    <button
+                      onClick={() => handleVerify(a.id)}
+                      className="ml-auto text-dark-500 hover:text-emerald-400 text-[11px] inline-flex items-center gap-1"
+                      title="Verify credentials"
+                    >
+                      <ShieldCheck className="w-3.5 h-3.5" />Verify
+                    </button>
+                    <button
+                      onClick={() => handleDelete(a.id)}
+                      className="text-dark-500 hover:text-red-400"
+                      title="Disconnect"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  {verifyResults[a.id] && (
+                    <p
+                      className={`text-[10px] mt-1 inline-flex items-center gap-1 ${
+                        verifyResults[a.id].valid ? 'text-emerald-400' : 'text-red-400'
+                      }`}
+                    >
+                      {verifyResults[a.id].valid ? (
+                        <>
+                          <CheckCircle2 className="w-3 h-3" /> AWS account {verifyResults[a.id].account}
+                        </>
+                      ) : (
+                        <>
+                          <XCircle className="w-3 h-3" /> {verifyResults[a.id].error}
+                        </>
+                      )}
+                    </p>
+                  )}
                 </li>
               ))}
             </ul>

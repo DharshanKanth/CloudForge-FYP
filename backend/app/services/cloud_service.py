@@ -22,6 +22,37 @@ def build_aws_env(credentials: Dict) -> Dict[str, str]:
     return env
 
 
+def _sts_client(credentials: Dict, region: str):
+    import boto3  # imported lazily so startup/tests don't require AWS
+
+    return boto3.client(
+        "sts",
+        region_name=region or credentials.get("region") or "us-east-1",
+        aws_access_key_id=credentials.get("access_key_id"),
+        aws_secret_access_key=credentials.get("secret_access_key"),
+        aws_session_token=credentials.get("session_token"),
+    )
+
+
+def verify_aws(credentials: Dict, region: str = "") -> Dict:
+    """Validate AWS credentials with an STS GetCallerIdentity call.
+
+    Returns ``{"valid": True, "account"/"arn"/"user_id"}`` on success, or
+    ``{"valid": False, "error": ...}`` with the real provider error. Never raises
+    and never fabricates a result.
+    """
+    try:
+        identity = _sts_client(credentials, region).get_caller_identity()
+        return {
+            "valid": True,
+            "account": identity.get("Account"),
+            "arn": identity.get("Arn"),
+            "user_id": identity.get("UserId"),
+        }
+    except Exception as exc:  # noqa: BLE001 - surface the provider error verbatim
+        return {"valid": False, "error": str(exc)}
+
+
 async def create_account(db: AsyncSession, user_id: str, data) -> CloudAccount:
     account = CloudAccount(
         user_id=user_id,

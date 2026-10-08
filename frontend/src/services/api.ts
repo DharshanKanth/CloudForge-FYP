@@ -148,6 +148,14 @@ export const cloudApi = {
     secret_access_key: string;
   }) => api.post('/api/cloud/accounts', data),
   remove: (id: string) => api.delete(`/api/cloud/accounts/${id}`),
+  verify: (id: string) => api.post(`/api/cloud/accounts/${id}/verify`),
+  verifyCredentials: (data: {
+    provider: string;
+    name: string;
+    region: string;
+    access_key_id: string;
+    secret_access_key: string;
+  }) => api.post('/api/cloud/verify', data),
 };
 
 // Advisory AI assistant (provider-agnostic; disabled unless configured)
