@@ -75,6 +75,11 @@ export function AiArchitectModal({ onApply, onClose }: AiArchitectModalProps) {
             {loading ? 'Thinking…' : 'Generate suggestion'}
           </button>
         </div>
+        {loading && (
+          <p className="text-[10px] text-dark-500 mt-2">
+            Generating a design… the local model can take up to a minute.
+          </p>
+        )}
 
         {notConfigured && (
           <div className="mt-4 flex items-start gap-2 p-3 rounded-lg bg-dark-800 text-dark-300 text-xs">
@@ -86,21 +91,38 @@ export function AiArchitectModal({ onApply, onClose }: AiArchitectModalProps) {
         {result && (
           <div className="mt-4 space-y-3">
             {result.rationale && <p className="text-xs text-dark-300">{result.rationale}</p>}
-            <div className="flex items-center gap-3 text-xs">
-              <span className="text-dark-400">{result.nodes?.length || 0} resources</span>
-              {errors.length === 0 ? (
-                <span className="text-emerald-400 inline-flex items-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  valid
-                </span>
-              ) : (
-                <span className="text-red-400">{errors.length} error(s)</span>
-              )}
-              {warnings.length > 0 && <span className="text-yellow-400">{warnings.length} warning(s)</span>}
-            </div>
-            <button onClick={apply} className="btn-secondary text-xs">
-              Apply to canvas
-            </button>
+            {(result.nodes?.length || 0) === 0 ? (
+              <div className="flex items-start gap-2 p-3 rounded-lg bg-dark-800 text-dark-300 text-xs">
+                <AlertTriangle className="w-4 h-4 text-yellow-400 flex-shrink-0 mt-0.5" />
+                The model returned no resources. Try rephrasing the request, or use a larger model (set
+                <span className="font-mono"> AI_MODEL</span>).
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center gap-3 text-xs">
+                  <span className="text-dark-400">{result.nodes?.length || 0} resources</span>
+                  {errors.length === 0 ? (
+                    <span className="text-emerald-400 inline-flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      valid
+                    </span>
+                  ) : (
+                    <span className="text-red-400">{errors.length} error(s)</span>
+                  )}
+                  {warnings.length > 0 && <span className="text-yellow-400">{warnings.length} warning(s)</span>}
+                </div>
+                {errors.length > 0 && (
+                  <ul className="text-[10px] text-red-300 list-disc pl-4 space-y-0.5">
+                    {errors.slice(0, 4).map((e: any, i: number) => (
+                      <li key={i}>{e.message}</li>
+                    ))}
+                  </ul>
+                )}
+                <button onClick={apply} className="btn-secondary text-xs">
+                  Apply to canvas
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>

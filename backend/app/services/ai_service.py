@@ -217,17 +217,26 @@ async def recommend_architecture(prompt: str) -> AIArchitecture:
         {"role": "system", "content": _SYSTEM_ARCHITECT},
         {"role": "user", "content": prompt},
     ]
-    # Local CPU models struggle with grammar-constrained output, so enforce the
-    # schema only for hosted providers; otherwise rely on the few-shot prompt and
-    # the deterministic validator.
+    # Local CPU models are stochastic and can occasionally emit invalid JSON or
+    # an empty design; retry once before giving up.
     use_schema = _provider() != "ollama"
-    content = await _chat(messages, response_json=True, schema=_ARCH_SCHEMA if use_schema else None)
-    try:
-        data = _extract_json(content)
-    except ValueError:
-        logger.warning("AI returned unparseable output (%d chars): %.600s", len(content or ""), content)
-        raise
-    return AIArchitecture.model_validate(data)
+    last_error: Optional[Exception] = None
+    for attempt in range(2):
+        content = await _chat(messages, response_json=True, schema=_ARCH_SCHEMA if use_schema else None)
+        try:
+            arch = AIArchitecture.model_validate(_extract_json(content))
+        except Exception as exc:  # noqa: BLE001 - ValueError or pydantic ValidationError
+            logger.warning(
+                "AI attempt %d returned unparseable output (%d chars): %.400s",
+                attempt + 1, len(content or ""), content,
+            )
+            last_error = exc
+            continue
+        if arch.nodes:
+            return arch
+        logger.warning("AI attempt %d returned no resources", attempt + 1)
+        last_error = ValueError("The AI returned no resources")
+    raise last_error or ValueError("The AI did not return a usable design")
 
 
 def _join_files(files, limit: int) -> str:
