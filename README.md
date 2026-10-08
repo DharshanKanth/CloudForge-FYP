@@ -1,20 +1,28 @@
 # ☁ CloudForge — Visual Multi-Cloud Infrastructure Automation Platform
 
-**Final Year Project** | Visual AWS Infrastructure Builder → Terraform Generator
+[![CI](https://github.com/DharshanKanth/CloudForge-FYP/actions/workflows/ci.yml/badge.svg)](https://github.com/DharshanKanth/CloudForge-FYP/actions/workflows/ci.yml)
+
+**Final Year Project** | Visual AWS Infrastructure Builder → Terraform Generator → Deploy → Manage → Destroy
 
 ---
 
-## Features (Review 2)
+## Features
 
 | Feature | Status |
 |---|---|
-| 🎨 **Visual Infrastructure Builder** | ✅ Drag & drop React Flow canvas |
-| ⚙ **Resource Configuration** | ✅ Per-type property panels |
-| ✅ **Architecture Validation** | ✅ Deterministic rule-based checks |
-| ⚡ **Terraform Generation** | ✅ Jinja2 templates → valid HCL |
-| 💾 **Save/Load Architecture** | ✅ PostgreSQL via SQLAlchemy |
-| 📦 **ZIP Download** | ✅ In-memory ZIP of all .tf files |
-| 🔐 **Auth** | ✅ JWT login/register |
+| 🎨 **Visual builder** — drag & drop, grouping, focus/breadcrumb, search, auto-layout | ✅ React Flow |
+| 🧩 **Canonical architecture model** (single source of truth for validation + generation) | ✅ JSON nodes/edges |
+| ✅ **Validation engine** — required fields, topology, CIDR overlap, cycles, severities | ✅ Deterministic |
+| ⚡ **Terraform generation** — 40+ AWS resource templates | ✅ Jinja2 → valid HCL |
+| 👁 **Terraform preview + ZIP export** | ✅ Monaco / in-memory ZIP |
+| 🔐 **Auth** — cookie JWT, refresh, rate limiting, per-user projects | ✅ |
+| ☁ **Cloud accounts** — per user, credentials **encrypted at rest**, backend-only | ✅ Fernet |
+| 🚀 **Deployment** — isolated worker, **streamed logs**, plan → approve → apply | ✅ Separate container |
+| 🧭 **Lifecycle state machine** — draft → validated → generated → ready → deploying → deployed → destroying → destroyed/failed | ✅ |
+| ⏯ **EC2 stop / start** via the provider API (not destroy) | ✅ boto3 |
+| 💰 **Cost estimation** + 🔒 **security analysis** | ✅ Deterministic |
+| 🤖 **AI assistant** (advisory; local Ollama or hosted) | ✅ Never executes infra |
+| 🧪 **Tests + CI** — pytest, vitest, Alembic drift check | ✅ GitHub Actions |
 
 ---
 
@@ -76,18 +84,50 @@ App opens at: **http://localhost:5173**
 
 ---
 
-## Demo Workflow
+## End-to-End Demo Runbook
 
-1. **Register** or use demo credentials: `demo@cloudforge.io` / `demo1234`
-2. Click **New Project** → Name it, select AWS
-3. You land in the **Visual Builder**:
-   - Drag a **VPC** from the sidebar
-   - Drag a **Subnet**, connect it to the VPC
-   - Drag an **EC2 Instance**, connect it to the Subnet
-   - Click resources to configure properties in the right panel
-4. Click **Validate** to check the architecture
-5. Click **Generate Terraform** → view syntax-highlighted HCL in Monaco Editor
-6. Click **Download ZIP** to get a deployable Terraform project
+> **Prerequisite for the deploy steps:** a working AWS account connected in
+> **Settings → Cloud Accounts** (Access Key ID + Secret + region), or set
+> `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` in `.env`. Steps 1–6 work
+> without AWS credentials.
+
+**Login:** `demo@cloudforge.io` / `demo1234` (created automatically by the seed).
+
+### Part A — Design → Validate → Generate (no AWS needed)
+1. **Dashboard → New Project** (e.g. "Three-Tier Web App", provider AWS).
+2. In the **Builder**, drag resources onto the canvas:
+   `VPC → 2 Subnets → Internet Gateway → Route Table → Load Balancer → 2× EC2 → Security Group → S3`.
+3. **Connect** them: subnet→VPC, EC2→subnet, LB→subnets, SG→EC2s. Related
+   resources are auto-nested into their container; click a group to expand it.
+4. Configure a resource by clicking it (right-hand panel).
+5. **Validate** — errors block; warnings are advisory.
+6. **Generate Terraform** — inspect `main.tf` / `variables.tf` / `outputs.tf` /
+   `providers.tf` in Monaco, then **Download ZIP**.
+
+### Part B — Plan → Deploy → Logs (needs AWS)
+7. **Plan** — enqueues a job; the **isolated worker** runs `terraform init/validate/plan`
+   and streams output live. The project moves to **ready**.
+8. **Deploy** — applies the reviewed plan; logs stream in real time and the
+   project moves to **deployed**.
+9. Open the **Infra** tab — live resources read from Terraform state (IDs,
+   public IPs, states).
+10. Open the **Runs** tab — browse every past plan/apply/destroy with its full logs.
+11. For an EC2 resource, use **Start / Stop** (a real provider API call, not a destroy).
+
+### Part C — AI assistant (works offline via bundled Ollama)
+12. Builder → **AI** → describe an architecture → **Generate suggestion** →
+    review the validation summary → **Apply to canvas**.
+13. On the Terraform page: **Explain** (code view) and **Troubleshoot with AI**
+    on a failed deployment. The AI is advisory and never runs Terraform.
+
+### Part D — Cost & security
+14. The Builder toolbar shows an estimated **~/mo** cost and a **high-risk** count
+    (deterministic — no LLM involved).
+
+### Part E — Destroy
+15. Terraform page → **Plan Destroy** → review → **Destroy**. Status moves to
+    **destroyed** and the Infra tab empties. Deleting a project also removes its
+    local workspace.
 
 ---
 
@@ -150,11 +190,23 @@ cloudforge/
 
 ---
 
+## CI & Maintenance
+
+- GitHub Actions (`.github/workflows/ci.yml`) runs on every push/PR to `main`:
+  - **backend**: starts a Postgres service, runs `alembic upgrade head` +
+    `alembic check` (migration-drift guard), then `pytest`.
+  - **frontend**: `npm ci`, `tsc` + `vite build`, then `vitest`.
+- **Dependabot** (`.github/dependabot.yml`) opens weekly PRs for pip, npm,
+  Docker and GitHub Actions updates.
+- Recommended: enable **branch protection** on `main` (require the CI checks to
+  pass before merge).
+
+---
+
 ## Future Roadmap
 
-- 🔵 Azure & GCP providers
-- 🤖 AI assistant for architecture suggestions
-- 💰 Cost estimation per resource
-- 🔒 Security analysis (open ports, IAM issues)
-- 🚀 Direct Terraform plan/apply via backend
-- 📊 Resource monitoring dashboard
+- 🔵 Azure & GCP providers (provider abstraction + stubs are in place)
+- 📊 Resource monitoring dashboard (metrics/logs beyond Terraform state)
+- 🧩 More AWS resource types and richer cross-resource validation
+- 🤝 Team/multi-user projects and sharing
+- 🧱 Move deployments to a hosted job queue (Redis/Celery) for horizontal scale
