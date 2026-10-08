@@ -17,4 +17,4 @@ bcrypt==4.0.1
 alembic==1.13.1
 python-dotenv==1.2.2
 boto3==1.43.109
-aiofiles==23.2.1
+aiofiles==25.1.0
