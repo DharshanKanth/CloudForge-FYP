@@ -69,6 +69,10 @@ services:
       dockerfile: Dockerfile
     container_name: cloudforge-worker
     command: ["python", "-m", "app.worker"]
+    # Background worker: it serves no HTTP, so the image's HTTP healthcheck
+    # does not apply.
+    healthcheck:
+      disable: true
     environment:
       DATABASE_URL: postgresql+asyncpg://cloudforge:cloudforge@postgres:5432/cloudforge
       SECRET_KEY: cloudforge-dev-secret-change-in-production
