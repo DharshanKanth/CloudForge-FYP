@@ -48,6 +48,7 @@ import { ConfigPanel } from '../features/builder/ConfigPanel';
 import { ValidationPanel } from '../features/builder/ValidationPanel';
 import { TemplateModal } from '../features/builder/TemplateModal';
 import { AiArchitectModal } from '../features/builder/AiArchitectModal';
+import { InsightsModal } from '../features/builder/InsightsModal';
 import { architectureApi, projectsApi, aiApi } from '../services/api';
 import type { ValidationResult, Project } from '../types';
 import toast from 'react-hot-toast';
@@ -209,6 +210,7 @@ export default function Builder() {
   const [fixing, setFixing] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showAi, setShowAi] = useState(false);
+  const [showInsights, setShowInsights] = useState(false);
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null);
@@ -1001,6 +1003,7 @@ export default function Builder() {
         searchQuery={searchQuery}
         costTotal={costTotal}
         securityHigh={securityHigh}
+        onOpenInsights={() => setShowInsights(true)}
       />
 
       {/* Breadcrumb (drill-down) */}
@@ -1092,6 +1095,10 @@ export default function Builder() {
           onApply={handleTemplateSelect}
           onClose={() => setShowAi(false)}
         />
+      )}
+
+      {showInsights && projectId && (
+        <InsightsModal projectId={projectId} onClose={() => setShowInsights(false)} />
       )}
     </div>
   );

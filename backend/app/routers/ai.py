@@ -30,6 +30,8 @@ from app.schemas.ai import (
 )
 from app.services import ai_service
 from app.services.autofix_service import auto_fix
+from app.services.cost_service import estimate as cost_estimate
+from app.services.security_service import analyze as security_analyze
 from app.services.terraform_service import generate_terraform_files
 from app.services.validation_service import validate_architecture
 
@@ -237,6 +239,60 @@ async def troubleshoot(
     db.add(AIRecommendation(
         user_id=current_user.id, project_id=project.id, kind="troubleshoot",
         prompt=req.error[:2000], response=text[:8000], provider=ai_service.status()["provider"],
+    ))
+    await db.commit()
+    return AITextResponse(configured=True, text=text)
+
+
+@router.post("/security", response_model=AITextResponse)
+async def ai_security_review(
+    req: AIProjectRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Higher-level security review layered on the deterministic findings."""
+    if not ai_service.status()["configured"]:
+        return AITextResponse(configured=False, message=_NOT_CONFIGURED)
+    project = await _get_project(req.project_id, current_user.id, db)
+    arch = await _get_arch(db, project.id)
+    findings = security_analyze(arch.nodes, arch.edges).get("findings", [])
+    try:
+        text = await ai_service.analyze_security(arch.nodes, arch.edges, findings)
+    except ai_service.AIUnavailable as exc:
+        return AITextResponse(configured=False, message=str(exc))
+    except ai_service.AIProviderError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    db.add(AIRecommendation(
+        user_id=current_user.id, project_id=project.id, kind="security",
+        prompt=f"{len(findings)} findings", response=text[:8000],
+        provider=ai_service.status()["provider"],
+    ))
+    await db.commit()
+    return AITextResponse(configured=True, text=text)
+
+
+@router.post("/cost", response_model=AITextResponse)
+async def ai_cost_optimization(
+    req: AIProjectRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Cost-optimization advice grounded in the deterministic estimate."""
+    if not ai_service.status()["configured"]:
+        return AITextResponse(configured=False, message=_NOT_CONFIGURED)
+    project = await _get_project(req.project_id, current_user.id, db)
+    arch = await _get_arch(db, project.id)
+    estimate = cost_estimate(arch.nodes)
+    try:
+        text = await ai_service.optimize_cost(estimate, arch.nodes)
+    except ai_service.AIUnavailable as exc:
+        return AITextResponse(configured=False, message=str(exc))
+    except ai_service.AIProviderError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    db.add(AIRecommendation(
+        user_id=current_user.id, project_id=project.id, kind="cost",
+        prompt=f"${estimate.get('monthly_total')}/mo", response=text[:8000],
+        provider=ai_service.status()["provider"],
     ))
     await db.commit()
     return AITextResponse(configured=True, text=text)

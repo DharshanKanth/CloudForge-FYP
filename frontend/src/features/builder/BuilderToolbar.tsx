@@ -18,13 +18,14 @@ interface BuilderToolbarProps {
   searchQuery: string;
   costTotal?: number | null;
   securityHigh?: number | null;
+  onOpenInsights?: () => void;
 }
 
 export function BuilderToolbar({
   rfInstance, saving, resourceCount, edgeCount,
   onSave, onAutoLayout, onExpandAll, onCollapseAll,
   onSearch, onClearSearch, searchQuery,
-  costTotal, securityHigh,
+  costTotal, securityHigh, onOpenInsights,
 }: BuilderToolbarProps) {
   const [localQuery, setLocalQuery] = useState(searchQuery || '');
 
@@ -92,22 +93,20 @@ export function BuilderToolbar({
         {edgeCount} connection{edgeCount !== 1 ? 's' : ''}
       </span>
 
-      {/* Cost + security insights (computed from the saved architecture) */}
-      {costTotal != null && (
-        <span
-          className="text-[10px] text-emerald-400 hidden lg:block"
-          title="Rough on-demand monthly estimate (USD)"
+      {/* Cost + security insights (click for the full breakdown) */}
+      {(costTotal != null || (securityHigh != null && securityHigh > 0)) && onOpenInsights && (
+        <button
+          onClick={onOpenInsights}
+          className="hidden lg:inline-flex items-center gap-2 text-[10px] hover:opacity-80"
+          title="Cost & security insights"
         >
-          ~${Math.round(costTotal).toLocaleString()}/mo
-        </span>
-      )}
-      {securityHigh != null && securityHigh > 0 && (
-        <span
-          className="text-[10px] text-red-400 hidden lg:block"
-          title={`${securityHigh} high-severity security finding(s)`}
-        >
-          ⚠ {securityHigh} high-risk
-        </span>
+          {costTotal != null && (
+            <span className="text-emerald-400">~${Math.round(costTotal).toLocaleString()}/mo</span>
+          )}
+          {securityHigh != null && securityHigh > 0 && (
+            <span className="text-red-400">⚠ {securityHigh} high-risk</span>
+          )}
+        </button>
       )}
 
       {/* Save */}

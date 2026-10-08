@@ -167,6 +167,8 @@ export const aiApi = {
   troubleshoot: (projectId: string, error: string) =>
     api.post('/api/ai/troubleshoot', { project_id: projectId, error }),
   fix: (projectId: string) => api.post('/api/ai/fix', { project_id: projectId }),
+  security: (projectId: string) => api.post('/api/ai/security', { project_id: projectId }),
+  cost: (projectId: string) => api.post('/api/ai/cost', { project_id: projectId }),
 };
 
 export default api;

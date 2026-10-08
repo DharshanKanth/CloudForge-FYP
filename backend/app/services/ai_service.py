@@ -277,10 +277,7 @@ def _slim_node(node: Dict) -> Dict:
 
 async def fix_architecture(nodes, edges, issues) -> AIArchitecture:
     """Ask the model to repair a design given the validator's findings."""
-    design = json.dumps({
-        "nodes": [_slim_node(n) for n in nodes],
-        "edges": [{"source": e.get("source"), "target": e.get("target")} for e in edges],
-    })
+    design = _design_json(nodes, edges)
     problems = "\n".join(
         f"- [{i.get('level')}] {i.get('message')}" for i in issues[:40]
     ) or "(none)"
@@ -292,6 +289,60 @@ async def fix_architecture(nodes, edges, issues) -> AIArchitecture:
         },
     ]
     return await _design_from_messages(messages)
+
+
+def _design_json(nodes, edges) -> str:
+    return json.dumps({
+        "nodes": [_slim_node(n) for n in nodes],
+        "edges": [{"source": e.get("source"), "target": e.get("target")} for e in edges],
+    })
+
+
+async def analyze_security(nodes, edges, findings) -> str:
+    """Higher-level security review layered on the deterministic findings."""
+    problems = "\n".join(
+        f"- [{f.get('severity')}] {f.get('title')} — {f.get('recommendation')}"
+        for f in (findings or [])[:40]
+    ) or "(none)"
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are an AWS security reviewer. Given an architecture and the deterministic "
+                "findings already detected, give a concise, prioritised security review and flag any "
+                "additional higher-level concerns the fixed rules may have missed (e.g. missing private "
+                "subnets, over-broad exposure, missing encryption/monitoring). Advisory only."
+            ),
+        },
+        {
+            "role": "user",
+            "content": f"Design:\n{_design_json(nodes, edges)}\n\nDetected findings:\n{problems}\n\nGive a short prioritised review.",
+        },
+    ]
+    return await _chat(messages, response_json=False)
+
+
+async def optimize_cost(estimate, nodes) -> str:
+    """Cost-optimization advice grounded in the deterministic estimate."""
+    items = "\n".join(
+        f"- {i.get('resource_type')} '{i.get('label')}': ${i.get('monthly_cost')}/mo ({i.get('note')})"
+        for i in (estimate or {}).get("items", [])
+    ) or "(none)"
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are an AWS cost-optimization assistant. Using ONLY the provided deterministic "
+                "estimate, suggest concrete optimizations (right-sizing, alternatives, removing idle "
+                "resources) with rough monthly savings. Do not invent prices beyond the estimate. Concise."
+            ),
+        },
+        {
+            "role": "user",
+            "content": f"Monthly total: ${(estimate or {}).get('monthly_total')} USD\nLine items:\n{items}\n\nSuggest optimizations.",
+        },
+    ]
+    return await _chat(messages, response_json=False)
 
 
 def _join_files(files, limit: int) -> str:

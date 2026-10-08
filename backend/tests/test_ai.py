@@ -90,3 +90,29 @@ def test_extract_json_handles_fences_and_prose():
 def test_extract_json_rejects_garbage():
     with pytest.raises(ValueError):
         ai_service._extract_json("no json at all")
+
+
+def test_analyze_security_returns_model_text(monkeypatch):
+    async def fake_chat(messages, response_json=True, schema=None):
+        assert response_json is False  # free text, not JSON
+        return "Prioritised review: restrict SSH and add a private subnet."
+
+    monkeypatch.setenv("AI_API_KEY", "sk-test")
+    monkeypatch.setattr(ai_service, "_chat", fake_chat)
+    text = asyncio.run(ai_service.analyze_security(
+        [], [], [{"severity": "high", "title": "SSH open", "recommendation": "restrict"}]
+    ))
+    assert "review" in text.lower()
+
+
+def test_optimize_cost_returns_model_text(monkeypatch):
+    async def fake_chat(messages, response_json=True, schema=None):
+        return "Right-size the EC2 instance to t3.small."
+
+    monkeypatch.setenv("AI_API_KEY", "sk-test")
+    monkeypatch.setattr(ai_service, "_chat", fake_chat)
+    text = asyncio.run(ai_service.optimize_cost(
+        {"monthly_total": 82, "items": [{"resource_type": "ec2", "label": "web", "monthly_cost": 30, "note": "t3.medium"}]},
+        [],
+    ))
+    assert "EC2" in text
