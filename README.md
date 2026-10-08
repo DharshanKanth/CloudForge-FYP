@@ -134,6 +134,11 @@ cloudforge/
   the API enqueues jobs (`deployments`) and the worker runs Terraform, streaming
   output into `deployment_logs`. The UI polls
   `/api/projects/{id}/deployments/{job}/logs` for live logs.
+- The **AI assistant is advisory and disabled by default**. Enable it with
+  `AI_PROVIDER` + `AI_API_KEY` (hosted) or `AI_PROVIDER=ollama` +
+  `AI_BASE_URL` (local). It never runs Terraform and its suggestions are gated
+  by the deterministic validator; unconfigured endpoints return
+  `configured: false` rather than fabricated output.
 - The auth rate limiter is **in-process** (per uvicorn worker). It is fine for a
   single worker; with multiple workers or horizontally scaled replicas, put a
   shared limiter in front (e.g. nginx `limit_req`) instead of relying on it.

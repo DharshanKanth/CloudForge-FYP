@@ -5,6 +5,10 @@ from app.schemas.architecture import (
 )
 from app.schemas.terraform import TerraformFile, TerraformGenerateResponse, TerraformValidationResult
 from app.schemas.cloud import CloudAccountCreate, CloudAccountResponse
+from app.schemas.ai import (
+    AIArchitectRequest, AIArchitectResponse, AIProjectRequest,
+    AITroubleshootRequest, AITextResponse, AIStatusResponse,
+)
 
 __all__ = [
     "UserCreate", "UserLogin", "UserResponse", "TokenResponse",
@@ -12,4 +16,6 @@ __all__ = [
     "ArchitectureSave", "ArchitectureResponse", "ValidationResult", "ValidationIssue",
     "TerraformFile", "TerraformGenerateResponse", "TerraformValidationResult",
     "CloudAccountCreate", "CloudAccountResponse",
+    "AIArchitectRequest", "AIArchitectResponse", "AIProjectRequest",
+    "AITroubleshootRequest", "AITextResponse", "AIStatusResponse",
 ]
