@@ -6,7 +6,7 @@ import os
 
 from app.database import run_migrations
 from app.seed import ensure_demo_seed, should_seed
-from app.routers import auth, projects, architecture, terraform, infrastructure
+from app.routers import auth, projects, architecture, terraform, infrastructure, cloud
 
 logger = logging.getLogger("cloudforge")
 
@@ -67,6 +67,7 @@ app.include_router(projects.router, prefix="/api/projects", tags=["Projects"])
 app.include_router(architecture.router, prefix="/api/projects", tags=["Architecture"])
 app.include_router(terraform.router, prefix="/api/projects", tags=["Terraform"])
 app.include_router(infrastructure.router, prefix="/api/infrastructure", tags=["Infrastructure"])
+app.include_router(cloud.router, prefix="/api/cloud", tags=["Cloud Accounts"])
 
 
 @app.get("/api/health")

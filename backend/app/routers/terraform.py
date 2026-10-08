@@ -12,7 +12,7 @@ from app.core.deps import get_current_user
 from app.services.terraform_service import generate_terraform_files
 from app.services.validation_service import validate_architecture
 from app.services.zip_service import create_terraform_zip
-from app.services import deployment_service
+from app.services import deployment_service, cloud_service
 import json
 import subprocess
 
@@ -115,7 +115,8 @@ async def plan_terraform(
             "issues": [issue.model_dump() for issue in validation.issues],
         })
     files = _generate_or_400(project, arch)
-    result = await _run_deployment(deployment_service.plan, project_id, files)
+    env_extra = await cloud_service.aws_env_for_user(db, project.user_id)
+    result = await _run_deployment(deployment_service.plan, project_id, files, env_extra)
     if result["status"] == "planned":
         project.status = "planned"
         await db.commit()
@@ -135,7 +136,8 @@ async def apply_terraform(
     current_user: User = Depends(get_current_user),
 ):
     project = await _get_project(project_id, current_user.id, db)
-    result = await _run_deployment(deployment_service.apply, project_id)
+    env_extra = await cloud_service.aws_env_for_user(db, project.user_id)
+    result = await _run_deployment(deployment_service.apply, project_id, env_extra)
     if result["status"] == "deployed":
         project.status = "deployed"
         await db.commit()
@@ -203,7 +205,8 @@ async def plan_destroy_terraform(
     live = deployment_service.infrastructure(project_id)
     if live.get("status") != "deployed":
         raise HTTPException(status_code=409, detail="Nothing is deployed for this project yet.")
-    result = await _run_deployment(deployment_service.plan_destroy, project_id)
+    env_extra = await cloud_service.aws_env_for_user(db, current_user.id)
+    result = await _run_deployment(deployment_service.plan_destroy, project_id, env_extra)
     await _create_event(
         db, project_id, "plan_destroy",
         "succeeded" if result["status"] == "destroy_planned" else "failed",
@@ -220,7 +223,8 @@ async def destroy_terraform(
     current_user: User = Depends(get_current_user),
 ):
     project = await _get_project(project_id, current_user.id, db)
-    result = await _run_deployment(deployment_service.destroy, project_id)
+    env_extra = await cloud_service.aws_env_for_user(db, project.user_id)
+    result = await _run_deployment(deployment_service.destroy, project_id, env_extra)
     if result["status"] == "destroyed":
         project.status = "saved"
         await db.commit()

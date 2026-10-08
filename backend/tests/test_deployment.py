@@ -13,7 +13,7 @@ PROJECT_ID = "11111111-2222-3333-4444-555555555555"
 
 
 def _fake_run(returncode=0, out="ok"):
-    def runner(cmd, cwd):
+    def runner(cmd, cwd, env_extra=None):
         return subprocess.CompletedProcess(cmd, returncode, out, "")
     return runner
 
@@ -22,7 +22,7 @@ def test_plan_invokes_fmt_and_binds_hash(tmp_path, monkeypatch):
     monkeypatch.setattr(ds, "DEPLOYMENT_ROOT", tmp_path)
     calls = []
 
-    def runner(cmd, cwd):
+    def runner(cmd, cwd, env_extra=None):
         calls.append(cmd[1])
         return subprocess.CompletedProcess(cmd, 0, "ok", "")
 

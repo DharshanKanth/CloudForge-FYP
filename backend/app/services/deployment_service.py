@@ -88,30 +88,33 @@ def _files_hash(workspace: Path) -> str:
     return digest.hexdigest()
 
 
-def _run(command: List[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+def _run(command: List[str], cwd: Path, env_extra: Dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    if env_extra:
+        env.update({k: v for k, v in env_extra.items() if v})
     return subprocess.run(
         command,
         cwd=cwd,
         capture_output=True,
         text=True,
         timeout=COMMAND_TIMEOUT_SECONDS,
-        env=os.environ.copy(),
+        env=env,
     )
 
 
-def plan(project_id: str, files: List[TerraformFile]) -> Dict:
+def plan(project_id: str, files: List[TerraformFile], env_extra: Dict[str, str] | None = None) -> Dict:
     with _project_lock(project_id):
         workspace = _write_files(project_id, files)
         # Canonicalize formatting before init/plan so generated HCL is always
         # `terraform fmt`-clean (cosmetic, but keeps plan diffs minimal).
-        _run(["terraform", "fmt", "-no-color"], workspace)
-        init = _run(["terraform", "init", "-input=false", "-no-color"], workspace)
+        _run(["terraform", "fmt", "-no-color"], workspace, env_extra)
+        init = _run(["terraform", "init", "-input=false", "-no-color"], workspace, env_extra)
         if init.returncode != 0:
             return {"status": "failed", "step": "init", "output": _output(init)}
-        validate = _run(["terraform", "validate", "-no-color"], workspace)
+        validate = _run(["terraform", "validate", "-no-color"], workspace, env_extra)
         if validate.returncode != 0:
             return {"status": "failed", "step": "validate", "output": _output(validate)}
-        planned = _run(["terraform", "plan", "-input=false", "-no-color", "-out=tfplan"], workspace)
+        planned = _run(["terraform", "plan", "-input=false", "-no-color", "-out=tfplan"], workspace, env_extra)
         if planned.returncode == 0:
             # Bind the plan to the exact files it was computed from so a stale
             # plan can't be applied after the design changed.
@@ -124,7 +127,7 @@ def plan(project_id: str, files: List[TerraformFile]) -> Dict:
         }
 
 
-def apply(project_id: str) -> Dict:
+def apply(project_id: str, env_extra: Dict[str, str] | None = None) -> Dict:
     with _project_lock(project_id):
         workspace = _workspace(project_id)
         if not (workspace / "tfplan").exists():
@@ -138,13 +141,13 @@ def apply(project_id: str) -> Dict:
             return {"status": "failed", "step": "apply", "output": "Plan metadata is unreadable — run Plan again before applying."}
         if _files_hash(workspace) != expected_hash:
             return {"status": "failed", "step": "apply", "output": "The design changed since the plan was created — run Plan again before applying."}
-        result = _run(["terraform", "apply", "-input=false", "-no-color", "tfplan"], workspace)
+        result = _run(["terraform", "apply", "-input=false", "-no-color", "tfplan"], workspace, env_extra)
         if result.returncode == 0:
             meta_path.unlink(missing_ok=True)
         return {"status": "deployed" if result.returncode == 0 else "failed", "step": "apply", "output": _output(result)}
 
 
-def plan_destroy(project_id: str) -> Dict:
+def plan_destroy(project_id: str, env_extra: Dict[str, str] | None = None) -> Dict:
     """Create a reviewable destroy plan bound to the current workspace files.
 
     Destroying what was *deployed* means using the workspace files from the
@@ -154,10 +157,10 @@ def plan_destroy(project_id: str) -> Dict:
         workspace = _workspace(project_id)
         if not any(workspace.glob("*.tf")):
             return {"status": "failed", "step": "plan-destroy", "output": "No Terraform workspace found — run a Plan first."}
-        init = _run(["terraform", "init", "-input=false", "-no-color"], workspace)
+        init = _run(["terraform", "init", "-input=false", "-no-color"], workspace, env_extra)
         if init.returncode != 0:
             return {"status": "failed", "step": "init", "output": _output(init)}
-        planned = _run(["terraform", "plan", "-destroy", "-input=false", "-no-color", "-out=tfdestroy"], workspace)
+        planned = _run(["terraform", "plan", "-destroy", "-input=false", "-no-color", "-out=tfdestroy"], workspace, env_extra)
         if planned.returncode == 0:
             meta = {"files_sha256": _files_hash(workspace)}
             (workspace / DESTROY_META_FILENAME).write_text(json.dumps(meta), encoding="utf-8")
@@ -168,7 +171,7 @@ def plan_destroy(project_id: str) -> Dict:
         }
 
 
-def destroy(project_id: str) -> Dict:
+def destroy(project_id: str, env_extra: Dict[str, str] | None = None) -> Dict:
     """Apply the previously created destroy plan (two-step, reviewed destroy)."""
     with _project_lock(project_id):
         workspace = _workspace(project_id)
@@ -184,7 +187,7 @@ def destroy(project_id: str) -> Dict:
         if _files_hash(workspace) != expected_hash:
             return {"status": "failed", "step": "destroy", "output": "The workspace changed since the destroy plan was created — run the destroy plan again."}
         # Applying the saved destroy plan executes exactly what was reviewed.
-        result = _run(["terraform", "apply", "-input=false", "-no-color", "tfdestroy"], workspace)
+        result = _run(["terraform", "apply", "-input=false", "-no-color", "tfdestroy"], workspace, env_extra)
         if result.returncode == 0:
             meta_path.unlink(missing_ok=True)
         return {"status": "destroyed" if result.returncode == 0 else "failed", "step": "destroy", "output": _output(result)}
