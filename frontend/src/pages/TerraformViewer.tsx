@@ -13,12 +13,14 @@ const fileIcons: Record<string, string> = {
   'network.tf': '🌐', 'compute.tf': '🖥', 'storage.tf': '🪣', 'database.tf': '🗄',
 };
 
-function InfraPanel({ infra, deploying, onRefresh, onDestroy, onBackToCode }: {
+function InfraPanel({ infra, deploying, onRefresh, onDestroy, onBackToCode, onPower, busyAddress }: {
   infra: Infrastructure | null;
   deploying: boolean;
   onRefresh: () => void;
   onDestroy: () => void;
   onBackToCode: () => void;
+  onPower: (address: string, action: 'start' | 'stop') => void;
+  busyAddress: string | null;
 }) {
   if (!infra || infra.status !== 'deployed') {
     return (
@@ -51,7 +53,7 @@ function InfraPanel({ infra, deploying, onRefresh, onDestroy, onBackToCode }: {
           </button>
         </div>
       </div>
-      <InfraResourceGrid resources={infra.resources} />
+      <InfraResourceGrid resources={infra.resources} onPower={onPower} busyAddress={busyAddress} />
       {Object.keys(infra.outputs).length > 0 && (
         <section>
           <h3 className="text-xs font-semibold text-dark-300 uppercase tracking-wider mb-2">📤 Outputs</h3>
@@ -86,6 +88,8 @@ export default function TerraformViewer() {
   const [events, setEvents] = useState<DeploymentEvent[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [showValidation, setShowValidation] = useState(true);
+  const [destroyPlanLocal, setDestroyPlanLocal] = useState(false);
+  const [busyAddress, setBusyAddress] = useState<string | null>(null);
 
   useEffect(() => {
     if (!projectId) return;
@@ -95,7 +99,11 @@ export default function TerraformViewer() {
         setProject(res.data);
         // Restore the deployment lifecycle from the server so the Deploy /
         // Destroy buttons are enabled correctly after a page reload.
-        if (res.data.status === 'planned' || res.data.status === 'deployed') {
+        if (
+          ['validated', 'generated', 'ready', 'deploying', 'deployed', 'destroying', 'destroyed', 'failed'].includes(
+            res.data.status
+          )
+        ) {
           setDeploymentStatus(res.data.status);
         }
       })
@@ -261,6 +269,10 @@ export default function TerraformViewer() {
       const res = await terraformApi.planDestroy(projectId);
       setDeploymentStatus(res.data.status);
       setDeploymentOutput(res.data.output || 'Destroy plan created.');
+      if (res.data.status === 'destroy_planned') {
+        setDestroyPlanLocal(true);
+        loadInfra();
+      }
       toast.success(res.data.status === 'destroy_planned' ? 'Destroy plan created — review it, then Destroy' : 'Destroy plan failed');
     } catch (err: any) {
       setDeploymentStatus('failed');
@@ -276,7 +288,8 @@ export default function TerraformViewer() {
     setDeploying(true);
     try {
       const res = await terraformApi.destroy(projectId);
-      setDeploymentStatus(res.data.status === 'destroyed' ? '' : 'failed');
+      setDeploymentStatus(res.data.status === 'destroyed' ? 'destroyed' : 'failed');
+      if (res.data.status === 'destroyed') setDestroyPlanLocal(false);
       setDeploymentOutput(res.data.output || 'Destroy completed.');
       if (res.data.status === 'destroyed') {
         toast.success('Infrastructure destroyed');
@@ -309,8 +322,10 @@ export default function TerraformViewer() {
         return;
       }
       setDeploymentStatus('destroy_planned');
+      setDestroyPlanLocal(true);
       const res = await terraformApi.destroy(projectId);
-      setDeploymentStatus(res.data.status === 'destroyed' ? '' : 'failed');
+      setDeploymentStatus(res.data.status === 'destroyed' ? 'destroyed' : 'failed');
+      if (res.data.status === 'destroyed') setDestroyPlanLocal(false);
       setDeploymentOutput(res.data.output || 'Destroy completed.');
       if (res.data.status === 'destroyed') {
         toast.success('Infrastructure destroyed');
@@ -326,6 +341,26 @@ export default function TerraformViewer() {
       toast.error('Destroy failed');
     } finally {
       setDeploying(false);
+    }
+  };
+
+  // Start/stop a deployed compute resource in place (provider API, not destroy).
+  const handlePower = async (address: string, action: 'start' | 'stop') => {
+    if (!projectId) return;
+    setBusyAddress(address);
+    try {
+      const res = await terraformApi.power(projectId, address, action);
+      if (res.data.state === 'started' || res.data.state === 'stopped') {
+        toast.success(`${action === 'start' ? 'Started' : 'Stopped'} ${address}`);
+        await loadInfra();
+        loadEvents();
+      } else {
+        toast.error(res.data.message || 'Operation failed');
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Operation failed');
+    } finally {
+      setBusyAddress(null);
     }
   };
 
@@ -353,6 +388,7 @@ export default function TerraformViewer() {
   };
 
   const activeContent = files.find((f) => f.filename === activeFile)?.content || '';
+  const destroyPlanReady = Boolean(infra?.destroy_plan_ready) || destroyPlanLocal;
 
   return (
     <div className="flex flex-col h-screen bg-dark-950 overflow-hidden">
@@ -375,17 +411,17 @@ export default function TerraformViewer() {
             <button onClick={handleCopy} className="btn-secondary text-xs">{copied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}{copied ? 'Copied!' : 'Copy'}</button>
             <button onClick={handleDownload} className="btn-secondary text-xs"><Download className="w-3.5 h-3.5" /></button>
             <button onClick={handlePlan} disabled={deploying} className="btn-secondary text-xs"><Play className="w-3.5 h-3.5" />{deploying ? 'Working...' : 'Plan'}</button>
-            <button onClick={handleApply} disabled={deploying || deploymentStatus !== 'planned'} className="btn-primary text-xs"><Rocket className="w-3.5 h-3.5" />Deploy</button>
+            <button onClick={handleApply} disabled={deploying || deploymentStatus !== 'ready'} className="btn-primary text-xs"><Rocket className="w-3.5 h-3.5" />Deploy</button>
             {deploymentStatus === 'deployed' && (
               <button onClick={handlePlanDestroy} disabled={deploying} className="btn-secondary text-xs" title="Create a reviewable destroy plan"><Undo2 className="w-3.5 h-3.5" />{deploying ? 'Working...' : 'Plan Destroy'}</button>
             )}
-            {['destroy_planned', 'plan-destroy'].includes(deploymentStatus) && (
+            {deploymentStatus === 'deployed' && destroyPlanReady && (
               <span className="text-[10px] text-yellow-400">Destroy plan ready — click Destroy to tear down</span>
             )}
-                        {deploymentStatus === 'failed' && (
+            {deploymentStatus === 'failed' && (
               <button onClick={() => handleClear()} disabled={deploying} className="btn-danger text-xs" title="Clear stale Terraform state"><Trash2 className="w-3.5 h-3.5" />Clear</button>
             )}
-            <button onClick={handleDestroy} disabled={deploying || !['deployed', 'destroy_planned', 'plan-destroy'].includes(deploymentStatus)} className="btn-danger text-xs" title="Destroy deployed infrastructure"><Trash2 className="w-3.5 h-3.5" /></button>
+            <button onClick={handleDestroy} disabled={deploying || deploymentStatus !== 'deployed' || !destroyPlanReady} className="btn-danger text-xs" title="Destroy deployed infrastructure"><Trash2 className="w-3.5 h-3.5" /></button>
           </>}
         </div>
       </header>
@@ -510,6 +546,8 @@ export default function TerraformViewer() {
                 onRefresh={loadInfra}
                 onDestroy={handleInfraDestroy}
                 onBackToCode={() => setView('code')}
+                onPower={handlePower}
+                busyAddress={busyAddress}
               />
             </div>
           ) : files.length === 0 ? (

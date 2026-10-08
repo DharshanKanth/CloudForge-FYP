@@ -10,7 +10,15 @@ export const categoryMeta: Record<string, { label: string; icon: string }> = {
  * Category-grouped card grid of live resources, shared between the
  * Terraform page's Infra tab and the Dashboard's Running Infrastructure.
  */
-export default function InfraResourceGrid({ resources }: { resources: InfraResource[] }) {
+export default function InfraResourceGrid({
+  resources,
+  onPower,
+  busyAddress,
+}: {
+  resources: InfraResource[];
+  onPower?: (address: string, action: 'start' | 'stop') => void;
+  busyAddress?: string | null;
+}) {
   return (
     <div className="space-y-5">
       {['compute', 'network', 'data'].map((cat) => {
@@ -46,6 +54,26 @@ export default function InfraResourceGrid({ resources }: { resources: InfraResou
                       );
                     })}
                   </div>
+                  {onPower && r.controllable && (
+                    <div className="flex gap-2 mt-2">
+                      <button
+                        onClick={() => onPower(r.address, 'start')}
+                        disabled={busyAddress === r.address}
+                        className="btn-secondary text-[10px] px-2 py-1"
+                        title="Start this resource (provider API)"
+                      >
+                        Start
+                      </button>
+                      <button
+                        onClick={() => onPower(r.address, 'stop')}
+                        disabled={busyAddress === r.address}
+                        className="btn-secondary text-[10px] px-2 py-1"
+                        title="Stop this resource (provider API)"
+                      >
+                        Stop
+                      </button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

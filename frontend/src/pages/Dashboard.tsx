@@ -287,13 +287,19 @@ export default function Dashboard() {
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex items-center gap-2">
                       <span className={providerColors[project.provider]}>{providerLabels[project.provider]}</span>
-                      <span className={project.status === 'deployed'
-                        ? 'badge bg-emerald-900/40 text-emerald-400'
-                        : project.status === 'planned'
-                          ? 'badge bg-yellow-900/40 text-yellow-400'
-                          : project.status === 'saved'
-                            ? 'badge-success'
-                            : 'badge bg-dark-700 text-dark-400'}>
+                      <span className={
+                        project.status === 'deployed'
+                          ? 'badge bg-emerald-900/40 text-emerald-400'
+                          : project.status === 'deploying' || project.status === 'destroying'
+                            ? 'badge bg-blue-900/40 text-blue-400'
+                            : project.status === 'ready'
+                              ? 'badge bg-yellow-900/40 text-yellow-400'
+                              : project.status === 'failed'
+                                ? 'badge bg-red-900/40 text-red-400'
+                                : project.status === 'destroyed'
+                                  ? 'badge bg-dark-700 text-dark-400'
+                                  : 'badge-success'
+                      }>
                         {project.status === 'deployed' ? '● live' : project.status}
                       </span>
                     </div>

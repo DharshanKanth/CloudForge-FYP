@@ -124,6 +124,8 @@ export const terraformApi = {
     api.delete(`/api/projects/${projectId}/terraform/clear`, {
       params: force ? { force: true } : undefined,
     }),
+  power: (projectId: string, address: string, action: 'start' | 'stop') =>
+    api.post(`/api/projects/${projectId}/terraform/resources/${encodeURIComponent(address)}/${action}`),
   downloadUrl: (projectId: string) => `${API_BASE_URL || ''}/api/projects/${projectId}/terraform/download`,
 };
 

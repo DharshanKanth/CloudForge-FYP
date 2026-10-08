@@ -161,6 +161,8 @@ export interface InfraResource {
   id: string;
   category: 'compute' | 'network' | 'data';
   attributes: Record<string, any>;
+  /** Whether an in-place start/stop is supported (e.g. EC2). */
+  controllable?: boolean;
 }
 
 export interface Infrastructure {
@@ -169,6 +171,7 @@ export interface Infrastructure {
   outputs: Record<string, any>;
   region: string;
   state_updated_at: number | null;
+  destroy_plan_ready?: boolean;
 }
 
 // Dashboard bulk summary (GET /api/infrastructure)
