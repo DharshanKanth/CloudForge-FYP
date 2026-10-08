@@ -5,8 +5,9 @@ from app.models.deployment_event import DeploymentEvent
 from app.models.cloud_account import CloudAccount
 from app.models.deployment import Deployment, DeploymentLog
 from app.models.ai_recommendation import AIRecommendation
+from app.models.ai_setting import AISetting
 
 __all__ = [
     "User", "Project", "Architecture", "DeploymentEvent", "CloudAccount",
-    "Deployment", "DeploymentLog", "AIRecommendation",
+    "Deployment", "DeploymentLog", "AIRecommendation", "AISetting",
 ]

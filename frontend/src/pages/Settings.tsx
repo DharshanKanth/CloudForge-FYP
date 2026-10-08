@@ -24,6 +24,14 @@ export default function Settings() {
   const [accessKeyId, setAccessKeyId] = useState('');
   const [secretAccessKey, setSecretAccessKey] = useState('');
   const [ai, setAi] = useState<any>(null);
+  const [showAiForm, setShowAiForm] = useState(false);
+  const [aiProvider, setAiProvider] = useState('openai');
+  const [aiBaseUrl, setAiBaseUrl] = useState('');
+  const [aiModel, setAiModel] = useState('');
+  const [aiKey, setAiKey] = useState('');
+  const [aiTest, setAiTest] = useState<any>(null);
+  const [aiSaving, setAiSaving] = useState(false);
+  const [aiTesting, setAiTesting] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<any>(null);
   const [verifyResults, setVerifyResults] = useState<Record<string, any>>({});
@@ -84,6 +92,66 @@ export default function Settings() {
       toast.success('Cloud account disconnected');
     } catch {
       toast.error('Failed to disconnect account');
+    }
+  };
+
+  const reloadAi = async () => {
+    try {
+      const r = await aiApi.status();
+      setAi(r.data);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const saveAi = async (e: FormEvent) => {
+    e.preventDefault();
+    setAiSaving(true);
+    setAiTest(null);
+    try {
+      await aiApi.saveSettings({
+        provider: aiProvider,
+        base_url: aiBaseUrl || null,
+        model: aiModel,
+        api_key: aiKey || null,
+      });
+      toast.success('AI settings saved');
+      setAiKey('');
+      await reloadAi();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Failed to save AI settings');
+    } finally {
+      setAiSaving(false);
+    }
+  };
+
+  const testAi = async () => {
+    setAiTesting(true);
+    setAiTest(null);
+    try {
+      const res = await aiApi.testSettings({
+        provider: aiProvider,
+        base_url: aiBaseUrl || null,
+        model: aiModel,
+        api_key: aiKey || null,
+      });
+      setAiTest(res.data);
+      if (res.data.ok) toast.success('Connection successful');
+      else toast.error('Connection failed');
+    } catch (err: any) {
+      setAiTest({ ok: false, message: err.response?.data?.detail || 'Test failed' });
+    } finally {
+      setAiTesting(false);
+    }
+  };
+
+  const clearAi = async () => {
+    try {
+      await aiApi.deleteSettings();
+      toast.success('AI settings cleared — using the server default');
+      await reloadAi();
+    } catch {
+      toast.error('Failed to clear AI settings');
     }
   };
 
@@ -278,24 +346,134 @@ export default function Settings() {
               <h3 className="text-sm font-semibold text-dark-100">AI Assistant</h3>
               <p className="text-xs text-dark-500 mt-0.5">
                 Advisory only — the assistant proposes designs and explanations, but the validator
-                gates everything and it never deploys infrastructure.
+                gates everything and it never deploys infrastructure. Add your own provider key, or
+                point it at a local model such as Ollama.
               </p>
               {ai &&
                 (ai.configured ? (
                   <p className="text-xs text-emerald-400 mt-2">
                     Configured — provider: <span className="font-mono">{ai.provider}</span>, model:{' '}
-                    <span className="font-mono">{ai.model}</span>
+                    <span className="font-mono">{ai.model}</span>{' '}
+                    <span className="text-dark-500">
+                      ({ai.source === 'user' ? 'your account' : 'server default'})
+                    </span>
                   </p>
                 ) : (
                   <p className="text-xs text-dark-500 mt-2">
-                    Not configured. Set <span className="font-mono">AI_PROVIDER</span> and{' '}
-                    <span className="font-mono">AI_API_KEY</span> (or{' '}
-                    <span className="font-mono">AI_BASE_URL</span> for a local model such as Ollama)
-                    on the backend to enable it.
+                    Not configured — add a provider below to enable the assistant.
                   </p>
                 ))}
             </div>
+            <button
+              type="button"
+              className="btn-secondary text-xs flex-shrink-0"
+              onClick={() => {
+                if (!showAiForm && ai) {
+                  setAiProvider(ai.provider === 'ollama' ? 'ollama' : 'openai');
+                  setAiBaseUrl(ai.base_url || '');
+                  setAiModel(ai.model || '');
+                  setAiTest(null);
+                }
+                setShowAiForm((v) => !v);
+              }}
+            >
+              {showAiForm ? 'Close' : 'Configure'}
+            </button>
           </div>
+
+          {showAiForm && (
+            <form onSubmit={saveAi} className="space-y-3 border-t border-dark-800 pt-4 mt-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Provider</label>
+                  <select
+                    className="input"
+                    value={aiProvider}
+                    onChange={(e) => setAiProvider(e.target.value)}
+                  >
+                    <option value="openai">OpenAI-compatible (hosted)</option>
+                    <option value="ollama">Ollama (local)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Model</label>
+                  <input
+                    className="input"
+                    value={aiModel}
+                    onChange={(e) => setAiModel(e.target.value)}
+                    placeholder={aiProvider === 'ollama' ? 'llama3.1' : 'gpt-4o-mini'}
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="label">
+                  Base URL {aiProvider === 'ollama' ? '(your local server)' : '(optional)'}
+                </label>
+                <input
+                  className="input font-mono"
+                  value={aiBaseUrl}
+                  onChange={(e) => setAiBaseUrl(e.target.value)}
+                  placeholder={
+                    aiProvider === 'ollama'
+                      ? 'http://host.docker.internal:11434/v1'
+                      : 'https://api.openai.com/v1'
+                  }
+                />
+              </div>
+              <div>
+                <label className="label">
+                  API Key {aiProvider === 'ollama' ? '(not needed for local)' : ''}
+                </label>
+                <input
+                  className="input font-mono"
+                  type="password"
+                  value={aiKey}
+                  onChange={(e) => setAiKey(e.target.value)}
+                  placeholder={ai.has_api_key ? '•••••• (leave blank to keep)' : 'sk-...'}
+                  autoComplete="off"
+                />
+              </div>
+              {aiTest && (
+                <p className={`text-[11px] ${aiTest.ok ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {aiTest.ok ? '✓ ' : '✗ '}
+                  {aiTest.message}
+                </p>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <button type="submit" disabled={aiSaving} className="btn-primary text-xs">
+                  {aiSaving ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-3.5 h-3.5" />
+                  )}
+                  Save
+                </button>
+                <button
+                  type="button"
+                  onClick={testAi}
+                  disabled={aiTesting}
+                  className="btn-secondary text-xs"
+                >
+                  {aiTesting ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                  )}
+                  Test connection
+                </button>
+                <button type="button" onClick={clearAi} className="btn-ghost text-xs">
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Clear
+                </button>
+              </div>
+              <p className="text-[10px] text-dark-600">
+                The API key is encrypted at rest and never returned. Local model example: Base URL{' '}
+                <span className="font-mono">http://host.docker.internal:11434/v1</span> when the app
+                runs in Docker, or <span className="font-mono">http://localhost:11434/v1</span>{' '}
+                otherwise.
+              </p>
+            </form>
+          )}
         </section>
       </div>
     </Layout>

@@ -116,3 +116,16 @@ def test_optimize_cost_returns_model_text(monkeypatch):
         [],
     ))
     assert "EC2" in text
+
+
+def test_config_from_input_applies_defaults():
+    from app.services import ai_config_service
+
+    cfg = ai_config_service.config_from_input("ollama", None, "", None)
+    assert cfg.provider == "ollama"
+    assert "11434" in cfg.base_url
+    assert cfg.model  # provider default
+    cfg2 = ai_config_service.config_from_input("openai", "https://api.example.com/v1/", "my-model", "sk-1")
+    assert cfg2.base_url == "https://api.example.com/v1"
+    assert cfg2.model == "my-model"
+    assert cfg2.api_key == "sk-1"

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 
 class AIRecNode(BaseModel):
@@ -68,3 +68,24 @@ class AIFixResponse(BaseModel):
     edges: List[Dict[str, Any]] = []
     before: Optional[Dict] = None
     after: Optional[Dict] = None
+
+
+class AISettingInput(BaseModel):
+    provider: Literal["openai", "ollama"] = "openai"
+    base_url: Optional[str] = Field(default=None, max_length=300)
+    model: str = Field(default="", max_length=120)
+    api_key: Optional[str] = Field(default=None, max_length=512)
+
+
+class AISettingResponse(BaseModel):
+    configured: bool
+    source: Literal["user", "env", "none"] = "none"
+    provider: str = "none"
+    base_url: Optional[str] = None
+    model: str = ""
+    has_api_key: bool = False
+
+
+class AIConnectionTestResponse(BaseModel):
+    ok: bool
+    message: str

@@ -6,9 +6,11 @@ gates the architecture and the user must apply anything. It never runs
 Terraform or touches infrastructure. When no provider is configured the
 endpoints report ``configured: false`` instead of fabricating output.
 """
+import contextvars
 import json
 import logging
 import os
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 import httpx
@@ -37,38 +39,84 @@ DEFAULT_MODEL = {
 }
 
 
-def _provider() -> str:
+@dataclass
+class AIConfig:
+    provider: str = "none"          # none | openai | ollama
+    base_url: Optional[str] = None
+    model: str = ""
+    api_key: Optional[str] = None
+
+
+# The active config for the current request. A per-user saved setting sets this;
+# otherwise it falls back to the process environment.
+_config_var: contextvars.ContextVar[Optional[AIConfig]] = contextvars.ContextVar(
+    "cloudforge_ai_config", default=None
+)
+
+
+def config_from_env() -> AIConfig:
+    """Provider config derived from environment variables (server default)."""
     explicit = (os.getenv("AI_PROVIDER") or "").strip().lower()
     if explicit in ("none", "disabled"):
-        return "none"
-    if explicit in ("openai", "ollama"):
-        return explicit
-    # Auto-detect: any OpenAI-compatible endpoint (key or base URL) is usable.
-    if os.getenv("AI_API_KEY") or os.getenv("AI_BASE_URL"):
-        return "openai"
-    return "none"
+        provider = "none"
+    elif explicit in ("openai", "ollama"):
+        provider = explicit
+    elif os.getenv("AI_API_KEY") or os.getenv("AI_BASE_URL"):
+        provider = "openai"
+    else:
+        provider = "none"
+    if provider == "none":
+        return AIConfig()
+    base = os.getenv("AI_BASE_URL")
+    base = base.rstrip("/") if base else DEFAULT_BASE.get(provider)
+    model = os.getenv("AI_MODEL") or DEFAULT_MODEL.get(provider, "")
+    return AIConfig(provider=provider, base_url=base, model=model, api_key=os.getenv("AI_API_KEY"))
+
+
+def set_config(cfg: Optional[AIConfig]) -> None:
+    """Set the config used for this request (None -> environment fallback)."""
+    _config_var.set(cfg)
+
+
+def current_config() -> AIConfig:
+    return _config_var.get() or config_from_env()
+
+
+def _provider() -> str:
+    return current_config().provider
 
 
 def _base_url() -> Optional[str]:
-    url = os.getenv("AI_BASE_URL")
-    if url:
-        return url.rstrip("/")
-    return DEFAULT_BASE.get(_provider())
+    return current_config().base_url
 
 
 def _model() -> str:
-    return os.getenv("AI_MODEL") or DEFAULT_MODEL.get(_provider(), "")
+    return current_config().model
 
 
 def status() -> Dict:
-    provider = _provider()
-    configured = provider != "none"
+    cfg = current_config()
+    configured = cfg.provider != "none"
     return {
         "configured": configured,
-        "provider": provider,
-        "model": _model() if configured else "",
-        "base_url": _base_url() if configured else None,
+        "provider": cfg.provider,
+        "model": cfg.model if configured else "",
+        "base_url": cfg.base_url if configured else None,
     }
+
+
+async def test_connection(cfg: AIConfig) -> Dict:
+    """Validate a candidate config with a minimal chat call. Never raises."""
+    if cfg.provider == "none":
+        return {"ok": False, "message": "No provider selected."}
+    token = _config_var.set(cfg)
+    try:
+        await _chat([{"role": "user", "content": "Reply with the single word: ok"}], response_json=False)
+        return {"ok": True, "message": "Connection successful."}
+    except Exception as exc:  # noqa: BLE001 - surface the provider error
+        return {"ok": False, "message": str(exc)}
+    finally:
+        _config_var.reset(token)
 
 
 async def _chat(messages: List[Dict[str, str]], response_json: bool = True, schema: Optional[Dict] = None) -> str:
@@ -78,7 +126,7 @@ async def _chat(messages: List[Dict[str, str]], response_json: bool = True, sche
 
     url = (_base_url() or "").rstrip("/") + "/chat/completions"
     headers = {"Content-Type": "application/json"}
-    key = os.getenv("AI_API_KEY")
+    key = current_config().api_key
     if key:
         headers["Authorization"] = f"Bearer {key}"
 

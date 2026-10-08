@@ -22,13 +22,16 @@ from app.models.user import User
 from app.schemas.ai import (
     AIArchitectRequest,
     AIArchitectResponse,
+    AIConnectionTestResponse,
     AIFixResponse,
     AIProjectRequest,
+    AISettingInput,
+    AISettingResponse,
     AIStatusResponse,
     AITextResponse,
     AITroubleshootRequest,
 )
-from app.services import ai_service
+from app.services import ai_config_service, ai_service
 from app.services.autofix_service import auto_fix
 from app.services.cost_service import estimate as cost_estimate
 from app.services.security_service import analyze as security_analyze
@@ -49,6 +52,11 @@ async def _get_project(project_id: str, user_id: str, db: AsyncSession) -> Proje
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     return project
+
+
+async def _activate(db: AsyncSession, user: User) -> None:
+    """Use the user's saved AI config for this request (else env default)."""
+    ai_service.set_config(await ai_config_service.resolve_config(db, user.id))
 
 
 async def _get_arch(db: AsyncSession, project_id: str) -> Architecture:
@@ -75,10 +83,62 @@ async def _files_for(db: AsyncSession, project: Project):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@router.get("/status", response_model=AIStatusResponse)
-async def ai_status(current_user: User = Depends(get_current_user)):
+@router.get("/status", response_model=AISettingResponse)
+async def ai_status(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Whether the AI layer is configured, and with which provider/model."""
-    return ai_service.status()
+    setting = await ai_config_service.get_setting(db, current_user.id)
+    cfg = await ai_config_service.resolve_config(db, current_user.id)
+    ai_service.set_config(cfg)
+    return AISettingResponse(
+        configured=cfg.provider != "none",
+        source="user" if setting else ("env" if cfg.provider != "none" else "none"),
+        provider=cfg.provider,
+        base_url=cfg.base_url,
+        model=cfg.model,
+        has_api_key=bool(cfg.api_key),
+    )
+
+
+@router.put("/settings", response_model=AISettingResponse)
+async def save_ai_settings(
+    data: AISettingInput,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Save this user's AI provider (key encrypted, never returned)."""
+    await ai_config_service.save_setting(db, current_user.id, data)
+    cfg = await ai_config_service.resolve_config(db, current_user.id)
+    return AISettingResponse(
+        configured=cfg.provider != "none",
+        source="user",
+        provider=cfg.provider,
+        base_url=cfg.base_url,
+        model=cfg.model,
+        has_api_key=bool(cfg.api_key),
+    )
+
+
+@router.delete("/settings")
+async def delete_ai_settings(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Clear this user's AI settings (fall back to the server default)."""
+    deleted = await ai_config_service.delete_setting(db, current_user.id)
+    return {"message": "AI settings cleared" if deleted else "No AI settings to clear"}
+
+
+@router.post("/settings/test", response_model=AIConnectionTestResponse)
+async def test_ai_settings(
+    data: AISettingInput,
+    current_user: User = Depends(get_current_user),
+):
+    """Test a candidate config by making a minimal call to the provider."""
+    cfg = ai_config_service.config_from_input(data.provider, data.base_url, data.model, data.api_key)
+    return await ai_service.test_connection(cfg)
 
 
 @router.post("/architect", response_model=AIArchitectResponse)
@@ -88,6 +148,7 @@ async def architect(
     current_user: User = Depends(get_current_user),
 ):
     """Turn a description into a structured architecture suggestion (advisory)."""
+    await _activate(db, current_user)
     if not ai_service.status()["configured"]:
         return AIArchitectResponse(configured=False, message=_NOT_CONFIGURED)
     if req.project_id:
@@ -130,6 +191,7 @@ async def explain(
     current_user: User = Depends(get_current_user),
 ):
     """Explain a project's generated Terraform in plain language."""
+    await _activate(db, current_user)
     if not ai_service.status()["configured"]:
         return AITextResponse(configured=False, message=_NOT_CONFIGURED)
     project = await _get_project(req.project_id, current_user.id, db)
@@ -159,6 +221,7 @@ async def fix_architecture_endpoint(
     Advisory: the corrected design is re-checked by the deterministic validator
     and the user must apply it.
     """
+    await _activate(db, current_user)
     if not ai_service.status()["configured"]:
         return AIFixResponse(configured=False, message=_NOT_CONFIGURED)
     project = await _get_project(req.project_id, current_user.id, db)
@@ -227,6 +290,7 @@ async def troubleshoot(
     current_user: User = Depends(get_current_user),
 ):
     """Explain a Terraform error and suggest a fix (advisory only)."""
+    await _activate(db, current_user)
     if not ai_service.status()["configured"]:
         return AITextResponse(configured=False, message=_NOT_CONFIGURED)
     project = await _get_project(req.project_id, current_user.id, db)
@@ -252,6 +316,7 @@ async def ai_security_review(
     current_user: User = Depends(get_current_user),
 ):
     """Higher-level security review layered on the deterministic findings."""
+    await _activate(db, current_user)
     if not ai_service.status()["configured"]:
         return AITextResponse(configured=False, message=_NOT_CONFIGURED)
     project = await _get_project(req.project_id, current_user.id, db)
@@ -279,6 +344,7 @@ async def security_fix_endpoint(
     current_user: User = Depends(get_current_user),
 ):
     """One-click security hardening: deterministic first, AI for the rest."""
+    await _activate(db, current_user)
     project = await _get_project(req.project_id, current_user.id, db)
     arch = await _get_arch(db, project.id)
     before = security_analyze(arch.nodes, arch.edges)
@@ -335,6 +401,7 @@ async def ai_cost_optimization(
     current_user: User = Depends(get_current_user),
 ):
     """Cost-optimization advice grounded in the deterministic estimate."""
+    await _activate(db, current_user)
     if not ai_service.status()["configured"]:
         return AITextResponse(configured=False, message=_NOT_CONFIGURED)
     project = await _get_project(req.project_id, current_user.id, db)

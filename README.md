@@ -119,6 +119,8 @@ App opens at: **http://localhost:5173**
     review the validation summary → **Apply to canvas**.
 13. On the Terraform page: **Explain** (code view) and **Troubleshoot with AI**
     on a failed deployment. The AI is advisory and never runs Terraform.
+    To use your **own key or local LLM**, open **Settings → AI Assistant**,
+    pick a provider, (optionally) paste a key, **Test connection**, then **Save**.
 
 ### Part D — Cost & security
 14. The Builder toolbar shows an estimated **~/mo** cost and a **high-risk** count
@@ -184,6 +186,13 @@ cloudforge/
     API key. Pull the model once: `docker compose exec ollama ollama pull qwen2.5:3b`.
     Local CPU models are slower and less reliable than a hosted key; override
     `AI_MODEL` to use a larger model.
+  - **Users can bring their own provider** in **Settings → AI Assistant**:
+    choose *OpenAI-compatible (hosted)* and paste an API key, or *Ollama (local)*
+    and point the Base URL at their own server (e.g.
+    `http://host.docker.internal:11434/v1` when the app runs in Docker). The key
+    is encrypted at rest and never returned; **Test connection** verifies it
+    before saving, and **Clear** falls back to the server default. Per-user
+    settings always win over the environment config for that user.
 - The auth rate limiter is **in-process** (per uvicorn worker). It is fine for a
   single worker; with multiple workers or horizontally scaled replicas, put a
   shared limiter in front (e.g. nginx `limit_req`) instead of relying on it.

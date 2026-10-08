@@ -170,6 +170,15 @@ export const aiApi = {
   security: (projectId: string) => api.post('/api/ai/security', { project_id: projectId }),
   securityFix: (projectId: string) => api.post('/api/ai/security-fix', { project_id: projectId }),
   cost: (projectId: string) => api.post('/api/ai/cost', { project_id: projectId }),
+  saveSettings: (data: {
+    provider: string;
+    base_url?: string | null;
+    model: string;
+    api_key?: string | null;
+  }) => api.put('/api/ai/settings', data),
+  deleteSettings: () => api.delete('/api/ai/settings'),
+  testSettings: (data: { provider: string; base_url?: string | null; model: string; api_key?: string | null }) =>
+    api.post('/api/ai/settings/test', data),
 };
 
 export default api;
