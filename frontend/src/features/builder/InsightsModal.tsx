@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 
 interface InsightsModalProps {
   projectId: string;
+  onApply: (nodes: any[], edges: any[]) => void;
   onClose: () => void;
 }
 
@@ -15,12 +16,13 @@ const severityIcon: Record<string, any> = {
   info: { icon: Info, color: 'text-blue-400' },
 };
 
-export function InsightsModal({ projectId, onClose }: InsightsModalProps) {
+export function InsightsModal({ projectId, onApply, onClose }: InsightsModalProps) {
   const [cost, setCost] = useState<any>(null);
   const [security, setSecurity] = useState<any>(null);
   const [tab, setTab] = useState<'cost' | 'security'>('cost');
   const [aiText, setAiText] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
+  const [fixing, setFixing] = useState(false);
 
   useEffect(() => {
     architectureApi.cost(projectId).then((r) => setCost(r.data)).catch(() => {});
@@ -47,6 +49,27 @@ export function InsightsModal({ projectId, onClose }: InsightsModalProps) {
   };
 
   const findings = security?.findings || [];
+
+  const fixSecurity = async () => {
+    setFixing(true);
+    try {
+      const res = await aiApi.securityFix(projectId);
+      if (res.data.source === 'none') {
+        toast(res.data.message || 'No automatic security fix available', { icon: '🛡' });
+        return;
+      }
+      onApply(res.data.nodes || [], res.data.edges || []);
+      if (res.data.after) setSecurity(res.data.after);
+      const b = (res.data.before?.counts?.high ?? 0) + (res.data.before?.counts?.medium ?? 0);
+      const a = (res.data.after?.counts?.high ?? 0) + (res.data.after?.counts?.medium ?? 0);
+      const who = res.data.source === 'ai' ? 'AI' : 'engine';
+      toast.success(`${who} applied security fixes — high/medium ${b} → ${a}`);
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Security fix failed');
+    } finally {
+      setFixing(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
@@ -112,6 +135,12 @@ export function InsightsModal({ projectId, onClose }: InsightsModalProps) {
         </div>
 
         <div className="pt-3 border-t border-dark-800 flex items-center gap-2">
+          {tab === 'security' && (
+            <button onClick={fixSecurity} disabled={fixing} className="btn-primary text-xs inline-flex items-center gap-1.5">
+              {fixing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Shield className="w-3.5 h-3.5" />}
+              {fixing ? 'Fixing…' : 'Fix security issues'}
+            </button>
+          )}
           <button onClick={() => runAi(tab)} disabled={aiLoading} className="btn-secondary text-xs inline-flex items-center gap-1.5">
             {aiLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
             {tab === 'cost' ? 'AI cost optimization' : 'AI security review'}

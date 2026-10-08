@@ -32,6 +32,7 @@ from app.services import ai_service
 from app.services.autofix_service import auto_fix
 from app.services.cost_service import estimate as cost_estimate
 from app.services.security_service import analyze as security_analyze
+from app.services.security_fix_service import auto_fix as security_auto_fix
 from app.services.terraform_service import generate_terraform_files
 from app.services.validation_service import validate_architecture
 
@@ -269,6 +270,62 @@ async def ai_security_review(
     ))
     await db.commit()
     return AITextResponse(configured=True, text=text)
+
+
+@router.post("/security-fix", response_model=AIFixResponse)
+async def security_fix_endpoint(
+    req: AIProjectRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """One-click security hardening: deterministic first, AI for the rest."""
+    project = await _get_project(req.project_id, current_user.id, db)
+    arch = await _get_arch(db, project.id)
+    before = security_analyze(arch.nodes, arch.edges)
+
+    def high_med(v):
+        c = v.get("counts") or {}
+        return c.get("high", 0) + c.get("medium", 0)
+
+    fixed_nodes, fixed_edges = security_auto_fix(arch.nodes, arch.edges)
+    after = security_analyze(fixed_nodes, fixed_edges)
+    source = "engine"
+
+    if high_med(after) >= high_med(before) and high_med(before) > 0 and ai_service.status()["configured"]:
+        issues = [
+            {"level": f.get("severity"), "message": f"{f.get('title')} - {f.get('recommendation')}"}
+            for f in before.get("findings", [])
+            if f.get("severity") in ("high", "medium")
+        ]
+        try:
+            suggestion = await ai_service.fix_architecture(arch.nodes, arch.edges, issues)
+            ai_nodes, ai_edges = ai_service.to_canvas(suggestion)
+            ai_nodes, ai_edges = auto_fix(ai_nodes, ai_edges)
+            ai_after = security_analyze(ai_nodes, ai_edges)
+            if high_med(ai_after) < high_med(before):
+                fixed_nodes, fixed_edges, after, source = ai_nodes, ai_edges, ai_after, "ai"
+        except (ai_service.AIProviderError, ValueError, ValidationError):
+            pass
+
+    if high_med(after) >= high_med(before):
+        return AIFixResponse(
+            configured=ai_service.status()["configured"], source="none",
+            message="No automatic security fix is available for these findings.",
+            before=before, after=after,
+        )
+
+    db.add(AIRecommendation(
+        user_id=current_user.id, project_id=project.id, kind="security_fix",
+        prompt=f"{high_med(before)} high/medium findings",
+        response=json.dumps({"source": source, "before": high_med(before), "after": high_med(after)})[:4000],
+        provider="engine" if source == "engine" else ai_service.status()["provider"],
+    ))
+    await db.commit()
+
+    return AIFixResponse(
+        configured=ai_service.status()["configured"], source=source,
+        nodes=fixed_nodes, edges=fixed_edges, before=before, after=after,
+    )
 
 
 @router.post("/cost", response_model=AITextResponse)

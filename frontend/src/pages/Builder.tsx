@@ -1098,7 +1098,11 @@ export default function Builder() {
       )}
 
       {showInsights && projectId && (
-        <InsightsModal projectId={projectId} onClose={() => setShowInsights(false)} />
+        <InsightsModal
+          projectId={projectId}
+          onApply={handleTemplateSelect}
+          onClose={() => setShowInsights(false)}
+        />
       )}
     </div>
   );
