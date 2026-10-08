@@ -10,6 +10,10 @@ updates:
     groups:
       backend-minor-patch:
         update-types: [minor, patch]
+    ignore:
+      # Pinned on purpose: passlib 1.7.4 is incompatible with bcrypt>=4.1.
+      - dependency-name: bcrypt
+        update-types: [version-update:semver-major, version-update:semver-minor]
 
   - package-ecosystem: npm
     directory: /frontend
