@@ -1,7 +1,11 @@
 resource "aws_instance" "{{ resource.slug }}" {
-  # Use the latest Amazon Linux 2023 AMI for the deployment region.
-  # A hardcoded amiId from another region is not valid in the current region.
+{% if resource.props.get('amiId') %}
+  # Custom AMI supplied in the builder.
+  ami           = "{{ resource.props.get('amiId') }}"
+{% else %}
+  # Latest Amazon Linux 2023 AMI for the deployment region.
   ami           = data.aws_ami.amazon_linux.id
+{% endif %}
   instance_type = var.ec2_instance_type_{{ resource.slug }}
 {% if resource.subnet_ref is defined and resource.subnet_ref %}
   subnet_id     = aws_subnet.{{ resource.subnet_ref }}.id

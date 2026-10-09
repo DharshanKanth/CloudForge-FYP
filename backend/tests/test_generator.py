@@ -211,6 +211,28 @@ def test_ebs_volume_matches_instance_subnet_az():
     assert 'availability_zone = "us-east-1b"' in ebs_block
 
 
+def test_ec2_custom_ami_is_used_when_provided():
+    gen = AWSTerraformGenerator()
+    nodes = [
+        {"id": "vpc1", "type": "vpc", "data": {"resourceType": "vpc", "properties": {"name": "v"}}},
+        {"id": "sub1", "type": "subnet", "data": {"resourceType": "subnet", "properties": {"name": "s"}}},
+        {"id": "ec21", "type": "ec2", "data": {"resourceType": "ec2", "properties": {
+            "name": "web", "amiId": "ami-0720cb7af233b0529"}}},
+    ]
+    edges = [{"source": "vpc1", "target": "sub1"}, {"source": "sub1", "target": "ec21"}]
+    main = next(f.content for f in gen.generate(nodes, edges, "AMI") if f.filename == "main.tf")
+    assert 'ami           = "ami-0720cb7af233b0529"' in main
+
+
+def test_ec2_defaults_to_latest_ami_when_no_custom():
+    gen = AWSTerraformGenerator()
+    nodes = [
+        {"id": "ec21", "type": "ec2", "data": {"resourceType": "ec2", "properties": {"name": "web"}}},
+    ]
+    main = next(f.content for f in gen.generate(nodes, [], "AMI2") if f.filename == "main.tf")
+    assert "data.aws_ami.amazon_linux.id" in main
+
+
 def test_unimplemented_providers_raise_clear_error():
     import pytest
 
