@@ -328,6 +328,7 @@ _VISION_MODEL_HINTS = (
     "chatgpt-4o", "o3", "o4",
     "claude-3", "claude-4", "claude-sonnet", "claude-opus", "claude-haiku",
     "gemini", "llava", "bakllava", "qwen2-vl", "qwen2.5-vl", "qwen3-vl",
+    "qwen2vl", "qwen2.5vl", "qwen3vl",
     "llama3.2-vision", "llama-3.2-vision", "llama4", "llama-4",
     "pixtral", "minicpm-v", "moondream", "internvl", "gemma3",
     "phi-3.5-vision", "phi-4-multimodal",
