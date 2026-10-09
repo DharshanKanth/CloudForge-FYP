@@ -16,8 +16,12 @@ provider "aws" {
   # Never hardcode credentials in Terraform files.
 }
 
-# Look up the latest Amazon Linux 2023 AMI dynamically so the generated
-# HCL works in any region without a hardcoded (and soon stale) AMI id.
+{% if needs_ami_lookup %}
+# Look up the latest Amazon Linux 2023 AMI dynamically so the generated HCL
+# works in any region without a hardcoded AMI id. This is emitted only when at
+# least one EC2 does not supply its own amiId — accounts that deny
+# ec2:DescribeImages (e.g. via a Service Control Policy) should set a custom
+# AMI on every EC2 so this data source is not needed.
 data "aws_ami" "amazon_linux" {
   most_recent = true
   owners      = ["amazon"]
@@ -32,3 +36,4 @@ data "aws_ami" "amazon_linux" {
     values = ["hvm"]
   }
 }
+{% endif %}

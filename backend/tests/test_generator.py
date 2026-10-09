@@ -233,6 +233,29 @@ def test_ec2_defaults_to_latest_ami_when_no_custom():
     assert "data.aws_ami.amazon_linux.id" in main
 
 
+def test_ami_lookup_omitted_when_every_ec2_has_custom_ami():
+    gen = AWSTerraformGenerator()
+    nodes = [
+        {"id": "ec21", "type": "ec2", "data": {"resourceType": "ec2", "properties": {
+            "name": "web", "amiId": "ami-0720cb7af233b0529"}}},
+    ]
+    files = gen.generate(nodes, [], "AMIOnly")
+    providers = next(f.content for f in files if f.filename == "providers.tf")
+    main = next(f.content for f in files if f.filename == "main.tf")
+    assert "data.aws_ami" not in providers
+    assert 'ami           = "ami-0720cb7af233b0529"' in main
+
+
+def test_ami_lookup_present_when_an_ec2_has_no_custom_ami():
+    gen = AWSTerraformGenerator()
+    nodes = [
+        {"id": "ec21", "type": "ec2", "data": {"resourceType": "ec2", "properties": {"name": "web"}}},
+    ]
+    files = gen.generate(nodes, [], "AMIDefault")
+    providers = next(f.content for f in files if f.filename == "providers.tf")
+    assert 'data "aws_ami" "amazon_linux"' in providers
+
+
 def test_unimplemented_providers_raise_clear_error():
     import pytest
 

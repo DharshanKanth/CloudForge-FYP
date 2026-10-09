@@ -447,6 +447,13 @@ class AWSTerraformGenerator(TerraformGenerator):
             "has_vpc": bool(vpcs),
             "has_subnet": bool(subnets),
             "has_ec2": bool(resources.get("ec2")),
+            # The dynamic AMI lookup is only needed when an EC2 has no custom
+            # amiId. It is omitted otherwise so accounts that deny
+            # ec2:DescribeImages (SCP) can still plan/apply.
+            "needs_ami_lookup": any(
+                not r.get("props", {}).get("amiId")
+                for r in resources.get("ec2", [])
+            ),
             "has_s3": bool(resources.get("s3")),
             "has_rds": bool(resources.get("rds")),
             "has_sg": bool(resources.get("security_group")),
